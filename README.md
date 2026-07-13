@@ -2,17 +2,21 @@
 
 닌텐도 게임큐브 일본판 **슈퍼로봇대전 GC**용 비공식 한국어 패치입니다. 대상 게임 ID는 `GRWJD9`이며, 다른 지역판이나 이미 수정된 이미지에는 적용할 수 없습니다.
 
-최신 배포본은 [v1.0.3 릴리스](https://github.com/snake7594/srw-gc-korean-patch/releases/tag/v1.0.3)에서 받을 수 있습니다.
+최신 배포본은 [v1.0.4 릴리스](https://github.com/snake7594/srw-gc-korean-patch/releases/tag/v1.0.4)에서 받을 수 있습니다.
 
 **v1.0.1은 전투 화면의 동적 타일 번호를 손상할 수 있으므로 사용하지 마세요.**
+**v1.0.3은 인물·로봇도감 설명문에서 글자 깨짐과 잘못된 메모리 읽기가 발생할 수 있어 철회했으므로 사용하지 마세요.**
 
-## v1.0.3 주요 내용
+## v1.0.4 주요 내용
 
 - 대사와 메뉴의 한국어화
 - 공략집 PDF 2권과 일본어 원문을 교차 검토해 실제 텍스트 2,778건 교정
 - 초반·중반 주요 장면을 포함한 대사 95건을 문맥과 화자 말투에 맞게 직접 교정
 - 시나리오 제목 39건을 재검토하고, 이미 정확했던 2건을 제외한 37개 제목 이미지를 같은 굵은 맑은 고딕으로 교체
 - 고유명사 뒤에 조사가 붙어 교정에서 빠졌던 이름과 도감의 심각한 기계번역·내부 placeholder를 정리
+- 인물도감 267건과 로봇도감 238건의 설명문을 런타임 안전 규격(최대 24열·48바이트)으로 재배치
+- 도감의 ASCII 문자·공백을 2바이트 셀로 정규화하고 줄바꿈 표식 정렬 오류, 홀수 바이트 구간 및 버퍼 초과를 모두 제거
+- 인물도감의 `기도・조타로` 오기를 `키도・죠타로`로 교정
 - 출력 맵 전체에서 일본어 문자와 내부 placeholder 잔존 0건 확인
 - 한국어 글꼴과 런타임 문자 코드 대응
 - 일본판을 기준으로 이벤트 흐름과 화자 순서를 유지
@@ -34,9 +38,9 @@
 | 원본 이미지 크기 | `1,459,978,240` 바이트 |
 | 원본 SHA-256 | `AD4CB99FFB3C0383802A2AB87963F98BA417DFC5184ED3FE3DFE077DA02DB229` |
 | 결과 이미지 크기 | `1,459,978,240` 바이트 |
-| 결과 SHA-256 | `5F289065E0AEE0947DF6A7C7C42A62ECD6BFB5E3E52DF688F8870D8F766C7885` |
-| xdelta 크기 | `109,515,300` 바이트 |
-| xdelta SHA-256 | `167EB20110AE784D6553126CC6DE2857B35BBA2096CF6B919B80C33A172E7BC1` |
+| 결과 SHA-256 | `118FD773C7614292C244B8F0CEE60B0AE7C25A14D8EC33297F95448096A384B0` |
+| xdelta 크기 | `110,414,337` 바이트 |
+| xdelta SHA-256 | `1DB3828D92BAFCCD976702155DF22FFF3974E4245485CF2595631330F49D3897` |
 
 소유한 정품 디스크에서 직접 만든, 수정되지 않은 원본 ISO만 사용하세요. 적용 스크립트가 원본 SHA-256을 검사하므로 파일명이 달라도 정확한 원본이면 사용할 수 있습니다.
 
@@ -44,7 +48,7 @@
 
 1. [xdelta3 공식 프로젝트](https://github.com/jmacd/xdelta-gpl/releases)에서 Windows용 `xdelta3.exe`를 준비합니다.
 2. 다음 파일을 같은 폴더에 둡니다.
-   - `SRW_GC_Korean_v1.0.3.xdelta`
+   - `SRW_GC_Korean_v1.0.4.xdelta`
    - `APPLY_PATCH.bat`
    - `apply_patch.ps1`
    - `xdelta3.exe` — 또는 `xdelta3`/`xdelta`를 `PATH`에 등록
@@ -60,7 +64,7 @@ APPLY_PATCH.bat "D:\Games\Super Robot Taisen GC.iso"
 APPLY_PATCH.bat "D:\Games\Super Robot Taisen GC.iso" "D:\Games\Super Robot Taisen GC Korean.iso"
 ```
 
-출력 경로를 생략하면 원본 ISO와 같은 폴더에 `Super Robot Taisen GC_Korean_v1.0.3.iso`가 만들어집니다. 스크립트는 패치 전 원본과 패치 후 결과의 SHA-256을 모두 검사합니다.
+출력 경로를 생략하면 원본 ISO와 같은 폴더에 `Super Robot Taisen GC_Korean_v1.0.4.iso`가 만들어집니다. 스크립트는 패치 전 원본과 패치 후 결과의 SHA-256을 모두 검사합니다.
 
 PowerShell에서 직접 실행할 수도 있습니다.
 

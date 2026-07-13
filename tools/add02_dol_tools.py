@@ -82,6 +82,7 @@ CP932_TRANSLATION_SUBSTITUTIONS = {
     "\u11AB": "\u3134",  # isolated Hangul jongseong NIEUN
     "\u11B7": "\u3141",  # isolated Hangul jongseong MIEUM
 }
+LIBRARY_RETAIL_MAX_LINE_COLUMNS = 25
 
 
 def _be32(data: bytes, offset: int) -> int:
@@ -568,7 +569,12 @@ def verify_identity_repack(source: Path) -> dict:
     }
 
 
-def validate_add02_structure(source: Path, reference: Path | None = None) -> dict:
+def validate_add02_structure(
+    source: Path,
+    reference: Path | None = None,
+    *,
+    max_library_line_columns: int = LIBRARY_RETAIL_MAX_LINE_COLUMNS,
+) -> dict:
     """Validate all known add02 tables and library record invariants.
 
     When ``reference`` is supplied, every non-text top-level block must remain
@@ -595,6 +601,13 @@ def validate_add02_structure(source: Path, reference: Path | None = None) -> dic
 
     arrow = "\u2192"
     library_records_checked = 0
+    library_max_line_columns = 0
+    library_max_line_bytes = 0
+    library_overflow_line_count = 0
+    library_misaligned_arrow_count = 0
+    library_odd_segment_count = 0
+    library_invalid_unit_count = 0
+    library_missing_trailing_arrow_count = 0
     for block, field_count in LIBRARY_BLOCK_FIELDS.items():
         start, end = block_map[block]
         segment = data[start:end]
@@ -610,8 +623,116 @@ def validate_add02_structure(source: Path, reference: Path | None = None) -> dic
                 )
                 continue
             last_offset = field_offsets[-1]
-            final_text, _ = _decode(raw_record[last_offset:])
-            expected_count = final_text.count(arrow)
+            final_raw = raw_record[last_offset:].rstrip(b"\0")
+            arrow_raw = arrow.encode("cp932")
+            arrow_offsets = [
+                offset
+                for offset in range(max(0, len(final_raw) - 1))
+                if final_raw[offset : offset + 2] == arrow_raw
+            ]
+            misaligned_arrows = [offset for offset in arrow_offsets if offset % 2]
+            aligned_arrows = [offset for offset in arrow_offsets if not offset % 2]
+            library_misaligned_arrow_count += len(misaligned_arrows)
+            if misaligned_arrows:
+                errors.append(
+                    {
+                        "kind": "library_arrow_alignment",
+                        "block": block,
+                        "record": record_index,
+                        "offsets": misaligned_arrows,
+                    }
+                )
+
+            segment_starts = [0] + [offset + 2 for offset in aligned_arrows]
+            segment_ends = aligned_arrows + [len(final_raw)]
+            segment_bytes = [
+                end_offset - start_offset
+                for start_offset, end_offset in zip(segment_starts, segment_ends)
+            ]
+            odd_segments = [
+                {"line": index, "bytes": byte_count}
+                for index, byte_count in enumerate(segment_bytes)
+                if byte_count % 2
+            ]
+            library_odd_segment_count += len(odd_segments)
+            if odd_segments:
+                errors.append(
+                    {
+                        "kind": "library_segment_alignment",
+                        "block": block,
+                        "record": record_index,
+                        "lines": odd_segments,
+                    }
+                )
+
+            invalid_units: list[dict[str, int]] = []
+            for line_index, (start_offset, end_offset) in enumerate(
+                zip(segment_starts, segment_ends)
+            ):
+                line_raw = final_raw[start_offset:end_offset]
+                for unit_offset in range(0, len(line_raw) - 1, 2):
+                    lead = line_raw[unit_offset]
+                    trail = line_raw[unit_offset + 1]
+                    if not (
+                        (0x81 <= lead <= 0x9F or 0xE0 <= lead <= 0xFC)
+                        and 0x40 <= trail <= 0xFC
+                        and trail != 0x7F
+                    ):
+                        invalid_units.append(
+                            {
+                                "line": line_index,
+                                "offset": unit_offset,
+                                "value": (lead << 8) | trail,
+                            }
+                        )
+            library_invalid_unit_count += len(invalid_units)
+            if invalid_units:
+                errors.append(
+                    {
+                        "kind": "library_invalid_text_unit",
+                        "block": block,
+                        "record": record_index,
+                        "units": invalid_units,
+                    }
+                )
+
+            trailing_arrow = final_raw.endswith(arrow_raw)
+            if not trailing_arrow:
+                library_missing_trailing_arrow_count += 1
+                errors.append(
+                    {
+                        "kind": "library_trailing_arrow",
+                        "block": block,
+                        "record": record_index,
+                    }
+                )
+
+            line_byte_lengths = segment_bytes[:-1] if trailing_arrow else segment_bytes
+            line_lengths = [value // 2 for value in line_byte_lengths]
+            record_max_columns = max(line_lengths, default=0)
+            library_max_line_columns = max(
+                library_max_line_columns, record_max_columns
+            )
+            library_max_line_bytes = max(
+                library_max_line_bytes, max(line_byte_lengths, default=0)
+            )
+            overflow_lines = [
+                {"line": index, "columns": columns, "bytes": line_byte_lengths[index]}
+                for index, columns in enumerate(line_lengths)
+                if columns > max_library_line_columns
+            ]
+            library_overflow_line_count += len(overflow_lines)
+            if overflow_lines:
+                errors.append(
+                    {
+                        "kind": "library_line_width",
+                        "block": block,
+                        "record": record_index,
+                        "maximum": max_library_line_columns,
+                        "lines": overflow_lines,
+                    }
+                )
+            expected_count = len(aligned_arrows)
             if header[0] != expected_count:
                 errors.append(
                     {
@@ -663,6 +784,14 @@ def validate_add02_structure(source: Path, reference: Path | None = None) -> dic
         "structured_fields": len(records),
         "pointer_counts": {str(key): value for key, value in pointer_counts.items()},
         "library_records_checked": library_records_checked,
+        "library_max_allowed_columns": max_library_line_columns,
+        "library_max_line_columns": library_max_line_columns,
+        "library_max_line_bytes": library_max_line_bytes,
+        "library_overflow_line_count": library_overflow_line_count,
+        "library_misaligned_arrow_count": library_misaligned_arrow_count,
+        "library_odd_segment_count": library_odd_segment_count,
+        "library_invalid_unit_count": library_invalid_unit_count,
+        "library_missing_trailing_arrow_count": library_missing_trailing_arrow_count,
         "nontext_blocks_checked": nontext_blocks_checked,
         "reference": str(Path(reference).resolve()) if reference is not None else None,
         "valid": not errors,

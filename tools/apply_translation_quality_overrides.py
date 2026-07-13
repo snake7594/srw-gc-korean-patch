@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,10 @@ JAPANESE_RE = re.compile(
 FORBIDDEN_PLACEHOLDER_RE = re.compile(r"__SRWG_")
 HANGUL_RANGE = r"\uac00-\ud7a3"
 STRUCTURE_TOKENS = ("<AA>", "<FF>", "<TT>")
+LIBRARY_LINE_BREAK = "\u2192"
+LIBRARY_DESCRIPTION_ID_RE = re.compile(
+    r"^add02:b(?:040:r\d{4}:f2|041:r\d{4}:f3)$"
+)
 REPOSITORY_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -110,6 +115,86 @@ def apply_context_replacements(
     for rule, pattern, after in compiled_rules:
         if context_matches(record, rule):
             corrected = pattern.sub(after, corrected)
+    return corrected
+
+
+def reflow_library_segment(segment: str, max_columns: int) -> list[str]:
+    """Wrap one encyclopedia line without exceeding the runtime text buffer.
+
+    The library viewer does not perform safe automatic wrapping.  Japanese
+    prose is authored as U+2192-delimited lines of at most 24 full-width
+    characters; longer Korean lines overwrite the next render buffer and can
+    make the game read an invalid address.  Japanese retail prose also splits
+    words at the fixed display edge.  A hard split minimizes total page lines
+    while keeping every temporary render-buffer copy within its byte limit.
+    """
+
+    if not segment:
+        return [""]
+    remaining = segment
+    lines: list[str] = []
+    while len(remaining) > max_columns:
+        # Keep Korean word spacing intact and avoid starting the next display
+        # line with a blank cell.  The space stays at the end of the current
+        # line so removing arrows reconstructs the exact normalized payload.
+        boundary = remaining.rfind("\u3000", 0, max_columns)
+        cut = boundary + 1 if boundary > 0 else max_columns
+        lines.append(remaining[:cut])
+        remaining = remaining[cut:]
+    lines.append(remaining)
+    return lines
+
+
+def normalize_library_width(text: str) -> tuple[str, int]:
+    """Make every encyclopedia display cell a two-byte CP932/codebook unit."""
+
+    if any(character in text for character in "\r\n\t"):
+        raise ValueError("library payload contains an unsupported control character")
+    text = unicodedata.normalize("NFC", text)
+    output: list[str] = []
+    changed = 0
+    for character in text:
+        codepoint = ord(character)
+        if character == " ":
+            character = "\u3000"
+            changed += 1
+        elif 0x21 <= codepoint <= 0x7E:
+            character = chr(codepoint + 0xFEE0)
+            changed += 1
+        output.append(character)
+    return "".join(output), changed
+
+
+def library_semantic_characters(text: str) -> str:
+    normalized, _ = normalize_library_width(text)
+    return "".join(
+        character
+        for character in normalized
+        if character != LIBRARY_LINE_BREAK
+    )
+
+
+def reflow_library_payload(text: str, max_columns: int) -> str:
+    # A single arrow is only a layout break.  Remove those legacy breaks and
+    # wrap the whole paragraph afresh; preserve double-arrow paragraph gaps and
+    # the mandatory trailing arrow consumed by the library pager.
+    trailing_arrow = text.endswith(LIBRARY_LINE_BREAK)
+    body = text[:-1] if trailing_arrow else text
+    paragraphs = body.split(LIBRARY_LINE_BREAK * 2)
+    wrapped_paragraphs: list[str] = []
+    for paragraph in paragraphs:
+        dewrapped = paragraph.replace(LIBRARY_LINE_BREAK, "")
+        normalized, _ = normalize_library_width(dewrapped)
+        wrapped_paragraphs.append(
+            LIBRARY_LINE_BREAK.join(
+                reflow_library_segment(normalized, max_columns)
+            )
+        )
+    corrected = (LIBRARY_LINE_BREAK * 2).join(wrapped_paragraphs)
+    if trailing_arrow:
+        corrected += LIBRARY_LINE_BREAK
+    if library_semantic_characters(text) != library_semantic_characters(corrected):
+        raise ValueError("library reflow changed non-layout characters")
     return corrected
 
 
@@ -325,6 +410,68 @@ def main() -> int:
 
     if len(dialogue_reports) != int(document["expected_dialogue_override_count"]):
         raise ValueError("dialogue override count drift")
+
+    reflow_config = document.get("library_reflow")
+    if not isinstance(reflow_config, dict):
+        raise ValueError("library_reflow configuration is required")
+    max_columns = int(reflow_config["max_columns"])
+    if max_columns != 24:
+        raise ValueError(f"unsupported library line width: {max_columns}")
+    add02_mapping = maps["add02_replacements.json"]
+    reflowed_ids: list[str] = []
+    inserted_breaks = 0
+    max_columns_before = 0
+    max_columns_after = 0
+    max_lines_after = 0
+    normalized_ascii_characters = 0
+    missing_trailing_arrows = 0
+    reviewed_records = 0
+    for stable_id, payload in list(add02_mapping.items()):
+        if not LIBRARY_DESCRIPTION_ID_RE.fullmatch(stable_id):
+            continue
+        reviewed_records += 1
+        before_segments = payload.split(LIBRARY_LINE_BREAK)
+        max_columns_before = max(
+            max_columns_before, max((len(value) for value in before_segments), default=0)
+        )
+        corrected = reflow_library_payload(payload, max_columns)
+        normalized_payload, normalized_count = normalize_library_width(payload)
+        del normalized_payload
+        normalized_ascii_characters += normalized_count
+        after_segments = corrected.split(LIBRARY_LINE_BREAK)
+        visible_line_count = len(after_segments) - int(corrected.endswith(LIBRARY_LINE_BREAK))
+        max_lines_after = max(max_lines_after, visible_line_count)
+        if not corrected.endswith(LIBRARY_LINE_BREAK):
+            missing_trailing_arrows += 1
+        max_columns_after = max(
+            max_columns_after, max((len(value) for value in after_segments), default=0)
+        )
+        if corrected == payload:
+            continue
+        add02_mapping[stable_id] = corrected
+        reflowed_ids.append(stable_id)
+        inserted_breaks += corrected.count(LIBRARY_LINE_BREAK) - payload.count(
+            LIBRARY_LINE_BREAK
+        )
+        changed_ids.add(stable_id)
+
+    actual_reflow = {
+        "max_columns": max_columns,
+        "reviewed_records": reviewed_records,
+        "reflowed_records": len(reflowed_ids),
+        "inserted_breaks": inserted_breaks,
+        "max_columns_before": max_columns_before,
+        "max_columns_after": max_columns_after,
+        "max_lines_after": max_lines_after,
+        "normalized_ascii_characters": normalized_ascii_characters,
+        "missing_trailing_arrows": missing_trailing_arrows,
+    }
+    for key, actual in actual_reflow.items():
+        expected = int(reflow_config[f"expected_{key}"])
+        if actual != expected:
+            raise ValueError(
+                f"library reflow {key} drift: actual={actual}, expected={expected}"
+            )
     if len(changed_ids) != int(document["expected_changed_record_count"]):
         raise ValueError(
             f"changed record count drift: {len(changed_ids)} != "
@@ -381,6 +528,7 @@ def main() -> int:
         "context_rules": rule_reports,
         "payload_overrides": payload_reports,
         "dialogue_overrides": dialogue_reports,
+        "library_reflow": {**actual_reflow, "record_ids": reflowed_ids},
         "changed_record_count": len(changed_ids),
         "changed_record_ids": sorted(changed_ids),
         "internal_placeholder_residual_count": len(placeholder_residuals),

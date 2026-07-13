@@ -18,6 +18,19 @@
     "PDF 내부 표기가 충돌하면 일본어 원문과 현대 통용 표기를 우선한다.",
     "남녀 주인공 이름은 사용자 지정인 아카츠키 아키미/아카츠키 아케미를 유지한다."
   ],
+  "library_reflow": {
+    "description": "인물·로봇 도감 런타임 버퍼를 보호하는 U+2192 줄바꿈",
+    "max_columns": 24,
+    "expected_max_columns": 24,
+    "expected_reviewed_records": 505,
+    "expected_reflowed_records": 505,
+    "expected_inserted_breaks": 906,
+    "expected_max_columns_before": 107,
+    "expected_max_columns_after": 24,
+    "expected_max_lines_after": 31,
+    "expected_normalized_ascii_characters": 37232,
+    "expected_missing_trailing_arrows": 0
+  },
   "expected_inputs": {
     "master": "F644107A1D45286C5E411AE03E2C379925460D11A69898CDE8E38A4C3E94F544",
     "add01_replacements.json": "27777E3687DEE24A7DAE644420FD596B3CCE945449446356E675B03A1DFE6D7D",
@@ -1063,6 +1076,14 @@
     }
   ],
   "payload_overrides": [
+    {
+      "id": "add02:b040:r0013:f0",
+      "japanese": "きど・じょうたろう",
+      "before": "기도・조타로",
+      "after": "키도・죠타로",
+      "pdf": "screenshot-runtime-audit",
+      "page": 0
+    },
     {
       "id": "add02:b033:r0011:f0",
       "japanese": "頭上の悪魔",
@@ -2376,7 +2397,7 @@
       "page": 40
     }
   ],
-  "expected_payload_override_count": 59,
+  "expected_payload_override_count": 60,
   "expected_dialogue_override_count": 95,
-  "expected_changed_record_count": 2778
+  "expected_changed_record_count": 3176
 }

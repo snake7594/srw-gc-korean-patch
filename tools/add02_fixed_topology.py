@@ -246,7 +246,9 @@ def verify_output(
         if source_data[source_start:source_end] != output_data[output_start:output_end]:
             non_text_changed.append(block)
 
-    structural_validation = add02.validate_add02_structure(output_path, source)
+    structural_validation = add02.validate_add02_structure(
+        output_path, source, max_library_line_columns=24
+    )
 
     return {
         "source": str(Path(source).resolve()),
