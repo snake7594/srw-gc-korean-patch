@@ -205,7 +205,9 @@ def main() -> int:
         raise RuntimeError("Japanese add01 record count changed")
 
     add02_validation = add02_dol_tools.validate_add02_structure(
-        output / "add02dat.bin", original_add02
+        output / "add02dat.bin",
+        original_add02,
+        max_library_line_columns=24,
     )
     if not add02_validation["valid"]:
         raise RuntimeError("Japanese add02 structure validation failed")

@@ -231,7 +231,9 @@ def main() -> int:
         if "KK" in text or "EE" in text
     ]
     add02_structure = add02_dol_tools.validate_add02_structure(
-        build / "add02dat.bin", args.original / "add02dat.bin"
+        build / "add02dat.bin",
+        args.original / "add02dat.bin",
+        max_library_line_columns=24,
     )
 
     report = {
