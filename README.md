@@ -2,11 +2,24 @@
 
 닌텐도 게임큐브 일본판 **슈퍼로봇대전 GC**용 비공식 한국어 패치입니다. 대상 게임 ID는 `GRWJD9`이며, 다른 지역판이나 이미 수정된 이미지에는 적용할 수 없습니다.
 
-최신 배포본은 [v1.0.5 릴리스](https://github.com/snake7594/srw-gc-korean-patch/releases/tag/v1.0.5)에서 받을 수 있습니다.
+최신 배포본은 [v1.0.6 릴리스](https://github.com/snake7594/srw-gc-korean-patch/releases/tag/v1.0.6)에서 받을 수 있습니다.
 
 **v1.0.1은 전투 화면의 동적 타일 번호를 손상할 수 있으므로 사용하지 마세요.**
 **v1.0.3은 인물·로봇도감 설명문에서 글자 깨짐과 잘못된 메모리 읽기가 발생할 수 있어 철회했으므로 사용하지 마세요.**
-**v1.0.4는 정신기 설명 23건이 다른 정신기에 연결되므로 v1.0.5로 교체하세요.**
+**v1.0.4는 정신기 설명 23건이 다른 정신기에 연결되므로 v1.0.6으로 교체하세요.**
+
+## v1.0.6 주요 내용
+
+v1.0.5까지 기계번역 상태로 남아 있던 문장을 일본어 원문·전후 문맥과 대조해 다시 번역한 릴리스입니다. 게임 구조, 그래픽, 글꼴, 정신기 교정은 v1.0.5와 동일하며 실제로 `add00dat.bin`·`font.pak`·`opening.bnr`은 v1.0.5와 SHA-256이 같습니다.
+
+- 기계번역으로 남아 있던 텍스트 **19,614건**을 일본어 원문과 전후 문맥 기준으로 재번역
+  - 시나리오 대사 12,079건, 전투 대사 6,911건, 메뉴·도감 495건, 시스템 문구 129건
+- `実の息子`가 `열매의 아들`로, 노인의 1인칭 `ワシ`가 `독수리`로 옮겨져 있는 등 의미가 뒤바뀌어 있던 오역을 교정
+- 화자별 말투와 존댓말·반말을 문맥에 맞게 통일하고, 조사 오류와 직역투 정리
+- 인물·로봇도감 설명 482건을 재번역하고 런타임 규격(최대 24열)으로 다시 배치
+- 교정본 전량을 실제 빌드 인코더로 검증: 표시 폭·구조 토큰·글꼴 코드북·화자 보존 위반 0건
+- 표본 220건 독립 검수에서 오역·의미 왜곡 0건 확인
+- 재현성 검증: 같은 도구로 v1.0.5를 다시 빌드해 공개된 ISO SHA-256과 바이트 단위 일치를 확인한 뒤 이 릴리스를 생성
 
 ## v1.0.5 주요 내용
 
@@ -43,9 +56,9 @@
 | 원본 이미지 크기 | `1,459,978,240` 바이트 |
 | 원본 SHA-256 | `AD4CB99FFB3C0383802A2AB87963F98BA417DFC5184ED3FE3DFE077DA02DB229` |
 | 결과 이미지 크기 | `1,459,978,240` 바이트 |
-| 결과 SHA-256 | `7E9DA87B4E2AE2E49C2840349DDF55ACD2FEF0FED0E72937332D0C08C49B40E3` |
-| xdelta 크기 | `110,414,124` 바이트 |
-| xdelta SHA-256 | `7298B5439168CAFD1A275D8CC743DFCC03D5C6E8321CB079429C05E873A90B9F` |
+| 결과 SHA-256 | `BB949E7BA003FA3D124343695627FDEF0EAE25E81D5B9E1FC7524F42000D26DB` |
+| xdelta 크기 | `109,488,610` 바이트 |
+| xdelta SHA-256 | `68112BF2476592DE1B08C36EB1A5BB3B95A5FD2EF8D42B4D239552948DB28623` |
 
 소유한 정품 디스크에서 직접 만든, 수정되지 않은 원본 ISO만 사용하세요. 적용 스크립트가 원본 SHA-256을 검사하므로 파일명이 달라도 정확한 원본이면 사용할 수 있습니다.
 
@@ -53,7 +66,7 @@
 
 1. [xdelta3 공식 프로젝트](https://github.com/jmacd/xdelta-gpl/releases)에서 Windows용 `xdelta3.exe`를 준비합니다.
 2. 다음 파일을 같은 폴더에 둡니다.
-   - `SRW_GC_Korean_v1.0.5.xdelta`
+   - `SRW_GC_Korean_v1.0.6.xdelta`
    - `APPLY_PATCH.bat`
    - `apply_patch.ps1`
    - `xdelta3.exe` — 또는 `xdelta3`/`xdelta`를 `PATH`에 등록
@@ -69,7 +82,7 @@ APPLY_PATCH.bat "D:\Games\Super Robot Taisen GC.iso"
 APPLY_PATCH.bat "D:\Games\Super Robot Taisen GC.iso" "D:\Games\Super Robot Taisen GC Korean.iso"
 ```
 
-출력 경로를 생략하면 원본 ISO와 같은 폴더에 `Super Robot Taisen GC_Korean_v1.0.5.iso`가 만들어집니다. 스크립트는 패치 전 원본과 패치 후 결과의 SHA-256을 모두 검사합니다.
+출력 경로를 생략하면 원본 ISO와 같은 폴더에 `Super Robot Taisen GC_Korean_v1.0.6.iso`가 만들어집니다. 스크립트는 패치 전 원본과 패치 후 결과의 SHA-256을 모두 검사합니다.
 
 PowerShell에서 직접 실행할 수도 있습니다.
 
@@ -85,8 +98,14 @@ PowerShell에서 직접 실행할 수도 있습니다.
 - `tools/apply_translation_quality_overrides.py`: PDF·일본어 원문 교정값을 안정 ID 기준으로 적용하고 구조·문자 잔존을 검사하는 도구
 - `tools/apply_spirit_command_corrections.py`: 정신기 이름·축약·설명을 일본판 안정 ID로 교정하고 30·30·29건의 대응을 검사하는 도구
 - `tools/patch_episode_title_graphics.py`: 허용된 시나리오 제목 BMP만 고정 레이아웃으로 다시 그리는 도구
+- `tools/build_iso_from_maps.py`: 번역 맵에서 바이너리 조립과 ISO 재배치를 한 번에 수행하고, `--expect-sha`로 기존 릴리스의 재현을 검증하는 도구
+- `tools/extract_mt_targets.py`, `tools/chunk_targets.py`: 기계번역 잔여 텍스트를 문맥·용어집과 함께 추출하고 검수 단위로 분할하는 도구
+- `tools/validate_mt_output.py`: 교정본을 실제 빌드 인코더로 검증(표시 폭·구조 토큰·글꼴 코드북·화자 보존)하는 도구
+- `tools/add01_payload.py`, `tools/lib_payload.py`: 대사의 화자 구간과 도감 설명 줄바꿈을 빌드와 동일한 규칙으로 처리하는 모듈
+- `tools/audit_speaker_prefix.py`: 대사 교정이 화자 이름 구간을 덮어쓰지 않았는지 감사하는 도구
 - `docs/기술_문서.md`: 패치 구조와 검증 절차
 - [번역 JSON 수정 가이드](docs/번역_JSON_수정_가이드.md): 대사·메뉴·도감·정신기 번역을 수정할 JSON과 안정 ID 작성 방법
+- [번역 문체 가이드](docs/번역_문체_가이드.md): 대사 교정 시의 말투·표기·구조 토큰 규칙
 - `docs/UI_이미지_패치.md`: 메뉴·타이틀·로딩 이미지의 재패킹 방식과 재현값
 - `data/`: UI 이미지 매핑, PDF 번역 품질 교정 및 정신기 안정 ID 교정 JSON
 - `APPLY_PATCH.bat`, `apply_patch.ps1`: Windows용 패치 적용 도구
