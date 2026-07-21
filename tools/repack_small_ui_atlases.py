@@ -38,15 +38,23 @@ TOOLS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS_DIR))
 import add00_tools  # noqa: E402
 
-
-WINDOWS_DIR = os.environ.get("WINDIR")
-DEFAULT_FONT = (
-    Path(WINDOWS_DIR) / "Fonts" / "malgunbd.ttf"
-    if WINDOWS_DIR
-    else Path("malgunbd.ttf")
+from ui_text_fit import (  # noqa: E402
+    RENDERER_VERSION,
+    choose_font,
+    japanese_ink_box,
+    place_ink,
 )
+
+
+LOCAL_FONT_DIR = (
+    Path(os.environ["LOCALAPPDATA"]) / "Microsoft" / "Windows" / "Fonts"
+    if os.environ.get("LOCALAPPDATA")
+    else Path(".")
+)
+FONT_FILENAME = "NanumSquareNeo-cBd.ttf"
+DEFAULT_FONT = LOCAL_FONT_DIR / FONT_FILENAME
 FONT = DEFAULT_FONT
-FONT_SHA256 = "E8CBC0B2AFCC14FB45DFB6086D5102C0B23A96E7B6E708F3122ACDE1B86C9082"
+FONT_SHA256 = "4749FA5691157CF56A59D297B45E88894A646846048018CD7A4117FFB2869767"
 JAPANESE_RE = re.compile(r"[\u3041-\u3096\u30a1-\u30fa\u3400-\u9fff]")
 ASCII_WORD_RE = re.compile(r"[A-Za-z]+")
 SUPPORTED_BITMAPS = (334, 355, 433, 438, 923, 930, 947, 952, 959, 2714, 3489)
@@ -201,8 +209,16 @@ def draw_fitted_text(
     fill: int = 255,
     shadow: int | None = 64,
     maximum_font_size: int | None = None,
-) -> tuple[Image.Image, int, tuple[int, int, int, int]]:
-    """Fit Malgun Gothic Bold into a canvas or an explicit subregion."""
+    japanese_box: tuple[int, int, int, int] | None = None,
+) -> tuple[Image.Image, int, tuple[int, int, int, int], dict[str, object]]:
+    """Reproduce the Japanese label's ink height inside a canvas or subregion.
+
+    ``japanese_box`` is the measured ink box of the Japanese retail label.
+    When it is available the face is chosen so the Korean ink matches its
+    height, and the result is centred on the same scanline; the canvas is
+    only used to clamp overflow.  Without it the historical largest-face-
+    that-fits behaviour is used.
+    """
 
     output = background.copy().convert("L")
     draw = ImageDraw.Draw(output)
@@ -211,30 +227,29 @@ def draw_fitted_text(
     left, top, right, bottom = region
     width, height = right - left, bottom - top
     spacing = -2 if "\n" in text else 0
-    limit = maximum_font_size or min(32, height + 4)
-    chosen = None
-    for font_size in range(limit, 5, -1):
-        font = ImageFont.truetype(str(FONT), font_size)
-        box = draw.multiline_textbbox(
-            (0, 0), text, font=font, spacing=spacing, align="center"
-        )
-        text_width = box[2] - box[0]
-        text_height = box[3] - box[1]
-        if text_width <= width - 4 and text_height <= height - 2:
-            chosen = font, font_size, box, text_width, text_height
-            break
-    if chosen is None:
-        raise ValueError(f"cannot fit {text!r} into region {region} of {output.size}")
-    font, font_size, box, text_width, text_height = chosen
-    if align == "left":
-        x = left + 2 - box[0]
-    elif align == "right":
-        x = right - text_width - 2 - box[0]
-    elif align == "center":
-        x = left + (width - text_width) // 2 - box[0]
-    else:
-        raise ValueError(f"unsupported text alignment: {align}")
-    y = top + (height - text_height) // 2 - box[1]
+    target_height = None
+    target_center = None
+    if japanese_box is not None:
+        target_height = japanese_box[3] - japanese_box[1]
+        target_center = (japanese_box[1] + japanese_box[3]) / 2
+    font, font_size, ink = choose_font(
+        FONT,
+        text,
+        region_size=(width, height),
+        target_height=target_height,
+        spacing=spacing,
+        shadow=shadow is not None,
+        horizontal_margin=2,
+        vertical_slack=0,
+        maximum_font_size=maximum_font_size,
+    )
+    x, y = place_ink(
+        ink,
+        region,
+        align=align,
+        horizontal_margin=2,
+        target_center_y=target_center,
+    )
     if shadow is not None:
         draw.multiline_text(
             (x + 1, y + 1), text, font=font, spacing=spacing,
@@ -243,11 +258,23 @@ def draw_fitted_text(
     draw.multiline_text(
         (x, y), text, font=font, spacing=spacing, align="center", fill=fill
     )
-    return output, font_size, region
+    metrics = {
+        "japanese_ink_box": list(japanese_box) if japanese_box else None,
+        "japanese_ink_height": target_height,
+        "korean_ink_height": ink[3] - ink[1],
+        "korean_ink_width": ink[2] - ink[0],
+        "korean_ink_box": [x + ink[0], y + ink[1], x + ink[2], y + ink[3]],
+        "matched_japanese_height": target_height is not None,
+    }
+    return output, font_size, region, metrics
 
 
 def render_korean_label(
-    bitmap: int, block_index: int, english_view: Image.Image, korean: str
+    bitmap: int,
+    block_index: int,
+    english_view: Image.Image,
+    korean: str,
+    japanese_view: Image.Image | None = None,
 ) -> tuple[Image.Image, dict[str, object]]:
     display = normalize_display_text(block_index, korean)
     if bitmap == 930:
@@ -255,15 +282,8 @@ def render_korean_label(
         # header panel is replaced; all chrome and panel art stays untouched.
         background = english_view.copy().convert("L")
         ImageDraw.Draw(background).rectangle((36, 61, 303, 95), fill=0)
-        result, font_size, region = draw_fitted_text(
-            background,
-            display,
-            align="left",
-            region=(40, 62, 300, 95),
-            fill=255,
-            shadow=64,
-            maximum_font_size=28,
-        )
+        region, align, fill, shadow = (40, 62, 300, 95), "left", 255, 64
+        maximum_font_size = 28
         mode = "screen_header_overlay"
     else:
         background = clean_background(bitmap, english_view)
@@ -285,22 +305,32 @@ def render_korean_label(
         else:
             region, align, fill, shadow = None, "center", 255, 64
             mode = "black_canvas_center"
-        result, font_size, region = draw_fitted_text(
-            background,
-            display,
-            align=align,
-            region=region,
-            fill=fill,
-            shadow=shadow,
-            # The 128x32 source atlas only has 64 tiles for all three pills.
-            # A common 16 px face is the largest clean Korean rendering that
-            # remains within that original capacity after flip deduplication.
-            maximum_font_size=(
-                16 if bitmap == 433 else
-                24 if bitmap == 952 else
-                None
-            ),
+        # The 128x32 source atlas only has 64 tiles for all three pills.
+        # A common 16 px face is the largest clean Korean rendering that
+        # remains within that original capacity after flip deduplication.
+        maximum_font_size = 16 if bitmap == 433 else 24 if bitmap == 952 else None
+
+    measure_region = region or (0, 0, english_view.width, english_view.height)
+    japanese_box = None
+    if japanese_view is not None and japanese_view.height == english_view.height:
+        reference = (
+            Image.new("L", japanese_view.size, 0)
+            if bitmap == 930
+            else clean_background(bitmap, japanese_view)
         )
+        japanese_box = japanese_ink_box(
+            japanese_view, reference, region=measure_region
+        )
+    result, font_size, region, metrics = draw_fitted_text(
+        background,
+        display,
+        align=align,
+        region=region,
+        fill=fill,
+        shadow=shadow,
+        maximum_font_size=maximum_font_size,
+        japanese_box=japanese_box,
+    )
     result = quantize_i4(result)
     return result, {
         "block_index": block_index,
@@ -311,6 +341,7 @@ def render_korean_label(
         "dimensions": list(result.size),
         "region": list(region),
         "ascii_words": ASCII_WORD_RE.findall(korean),
+        **metrics,
     }
 
 
@@ -381,7 +412,7 @@ def main(argv: list[str] | None = None) -> int:
         "--font",
         type=Path,
         default=DEFAULT_FONT,
-        help="path to malgunbd.ttf; the pinned SHA-256 is always verified",
+        help=f"path to {FONT_FILENAME}; the pinned SHA-256 is always verified",
     )
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--preview-dir", type=Path, required=True)
@@ -519,7 +550,11 @@ def main(argv: list[str] | None = None) -> int:
             if ASCII_WORD_RE.search(korean):
                 raise ValueError(f"English word remains in Korean proposal {index}: {korean!r}")
             target, render_record = render_korean_label(
-                bitmap, index, english_images[index], korean
+                bitmap,
+                index,
+                english_images[index],
+                korean,
+                japanese_images[index],
             )
             target_images[index] = target
             group_render_records.append(render_record)
@@ -645,6 +680,7 @@ def main(argv: list[str] | None = None) -> int:
         "renderer": {
             "pillow": PIL.__version__,
             "freetype": features.version("freetype2"),
+            "text_fit": RENDERER_VERSION,
         },
         "output": str(args.output.resolve()),
         "output_sha256": sha256(built),

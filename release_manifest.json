@@ -1,6 +1,6 @@
 {
   "schema": "srw-gc-korean-release-v1",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "game": {
     "title": "슈퍼로봇대전 GC",
     "region": "Japan",
@@ -12,13 +12,13 @@
   },
   "result": {
     "size": 1459978240,
-    "sha256": "C1CCEA5FF63BD717E57E1EB3820C8D10C6B377C3456C92CE4C28C4EA6A21A3ED"
+    "sha256": "645A30E3DAA781F622966BA940164A82FED52F0A65FABAB476CC60A0845BFF4F"
   },
   "patch": {
-    "filename": "SRW_GC_Korean_v1.0.7.xdelta",
+    "filename": "SRW_GC_Korean_v1.0.8.xdelta",
     "format": "VCDIFF/xdelta3",
-    "size": 109491718,
-    "sha256": "1138CB1EC488024C86A2226D81E23B1232E540D78D85B6EDD863BA13ACD55A40",
+    "size": 109511589,
+    "sha256": "CAF189ECCED36E7B34DDD27D41119C38C6200F419223A5DC94BD1993645D497E",
     "secondary_compressor": "lzma",
     "application_header": false
   },
@@ -90,6 +90,13 @@
     "dialogue_window_checked_story_records": 22378,
     "dialogue_window_checked_battle_records": 35319,
     "dialogue_window_overflow_lines": 0,
-    "dialogue_window_line_count_violations": 0
+    "dialogue_window_line_count_violations": 0,
+    "ui_font": "NanumSquareNeo-cBd",
+    "runtime_font_glyphs_rerendered": 1370,
+    "ui_scr_canvases_restored_to_japanese": 137,
+    "ui_labels_height_matched_ratio_ge_095": 283,
+    "ui_labels_severely_undersized_before": 21,
+    "ui_labels_severely_undersized_after": 10,
+    "terminology_fixes": 1
   }
 }
