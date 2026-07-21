@@ -43,15 +43,24 @@ import add00_tools  # noqa: E402
 
 from extract_scr_atlas import contact_sheets, render_direct  # noqa: E402
 
-
-WINDOWS_DIR = os.environ.get("WINDIR")
-DEFAULT_FONT = (
-    Path(WINDOWS_DIR) / "Fonts" / "malgunbd.ttf"
-    if WINDOWS_DIR
-    else Path("malgunbd.ttf")
+from ui_text_fit import (  # noqa: E402
+    RENDERER_VERSION,
+    choose_font,
+    japanese_ink_box,
+    place_ink,
+    unique_ink_box,
 )
+
+
+LOCAL_FONT_DIR = (
+    Path(os.environ["LOCALAPPDATA"]) / "Microsoft" / "Windows" / "Fonts"
+    if os.environ.get("LOCALAPPDATA")
+    else Path(".")
+)
+FONT_FILENAME = "NanumSquareNeo-cBd.ttf"
+DEFAULT_FONT = LOCAL_FONT_DIR / FONT_FILENAME
 FONT = DEFAULT_FONT
-FONT_SHA256 = "E8CBC0B2AFCC14FB45DFB6086D5102C0B23A96E7B6E708F3122ACDE1B86C9082"
+FONT_SHA256 = "4749FA5691157CF56A59D297B45E88894A646846048018CD7A4117FFB2869767"
 JAPANESE_RE = re.compile(r"[\u3041-\u3096\u30a1-\u30fa\u3400-\u9fff]")
 ASCII_WORD_RE = re.compile(r"[A-Za-z]+")
 
@@ -65,36 +74,49 @@ def render_korean(
     text: str,
     align: str,
     background: Image.Image | None = None,
-) -> tuple[Image.Image, int]:
+    japanese_box: tuple[int, int, int, int] | None = None,
+    left_hint: int | None = None,
+    vertical_slack: int = 0,
+) -> tuple[Image.Image, int, dict[str, object]]:
+    """Draw ``text`` at the Japanese label's ink height and vertical centre.
+
+    ``japanese_box`` is the ink box measured on the Japanese retail label
+    for this SCR.  When it is missing - the two containers disagree about
+    the canvas, so the labels are not the same artwork - the historical
+    largest-face-that-fits behaviour is used instead.
+    """
+
     image = background.copy() if background is not None else Image.new("L", size, 0)
     draw = ImageDraw.Draw(image)
     width, height = size
     horizontal_margin = 1 if width <= 8 else 2
     spacing = -2 if "\n" in text else 0
-    chosen = None
-    for font_size in range(min(28, height + 3), 5, -1):
-        font = ImageFont.truetype(str(FONT), font_size)
-        box = draw.multiline_textbbox(
-            (0, 0), text, font=font, spacing=spacing, align="center"
-        )
-        text_width = box[2] - box[0]
-        text_height = box[3] - box[1]
-        if text_width <= width - horizontal_margin * 2 and text_height <= height - 2:
-            chosen = font, font_size, box, text_width, text_height
-            break
-    if chosen is None:
-        raise ValueError(f"cannot fit {text!r} into {size}")
-    font, font_size, box, text_width, text_height = chosen
-    if align == "left":
-        x = horizontal_margin - box[0]
-    elif align == "right":
-        x = width - text_width - horizontal_margin - box[0]
-    elif align == "center":
-        x = (width - text_width) // 2 - box[0]
-    else:
-        raise ValueError(f"unsupported alignment: {align}")
-    y = (height - text_height) // 2 - box[1]
-    if width > 8:
+    shadow = width > 8
+    target_height = None
+    target_center = None
+    if japanese_box is not None:
+        target_height = japanese_box[3] - japanese_box[1]
+        target_center = (japanese_box[1] + japanese_box[3]) / 2
+    font, font_size, ink = choose_font(
+        FONT,
+        text,
+        region_size=size,
+        target_height=target_height,
+        spacing=spacing,
+        shadow=shadow,
+        horizontal_margin=horizontal_margin,
+        vertical_slack=vertical_slack,
+        maximum_font_size=None if target_height is not None else min(28, height + 3),
+    )
+    x, y = place_ink(
+        ink,
+        (0, 0, width, height),
+        align=align,
+        horizontal_margin=horizontal_margin,
+        target_center_y=target_center,
+        left_hint=left_hint,
+    )
+    if shadow:
         draw.multiline_text(
             (x + 1, y + 1), text, font=font, spacing=spacing,
             align="center", fill=64,
@@ -102,7 +124,14 @@ def render_korean(
     draw.multiline_text(
         (x, y), text, font=font, spacing=spacing, align="center", fill=255
     )
-    return image, font_size
+    return image, font_size, {
+        "japanese_ink_box": list(japanese_box) if japanese_box else None,
+        "japanese_ink_height": target_height,
+        "korean_ink_height": ink[3] - ink[1],
+        "korean_ink_width": ink[2] - ink[0],
+        "korean_ink_box": [x + ink[0], y + ink[1], x + ink[2], y + ink[3]],
+        "matched_japanese_height": target_height is not None,
+    }
 
 
 def image_tiles(image: Image.Image) -> list[bytes]:
@@ -188,10 +217,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--english", type=Path)
     parser.add_argument("--bitmap", type=int, default=518)
     parser.add_argument(
+        "--vertical-slack",
+        type=int,
+        default=0,
+        help=(
+            "scanlines withheld from every label canvas.  The default of 0 "
+            "tracks the Japanese ink height most closely but leaves atlas "
+            "518 close to its ceiling: it already owns 8,448 of the 16,384 "
+            "indices the 14-bit SCR format can address, and the Korean set "
+            "of v1.0.7 appends 7,921 of the 7,936 that remain.  Raise this "
+            "to 1 or 2 if repack_preserve_indices reports that the appended "
+            "atlas no longer fits after a translation change"
+        ),
+    )
+    parser.add_argument(
         "--font",
         type=Path,
         default=DEFAULT_FONT,
-        help="path to malgunbd.ttf; the pinned SHA-256 is always verified",
+        help=f"path to {FONT_FILENAME}; the pinned SHA-256 is always verified",
     )
     parser.add_argument("--report", type=Path)
     parser.add_argument("--preview-dir", type=Path)
@@ -290,20 +333,39 @@ def main(argv: list[str] | None = None) -> int:
                     reference_view, _ = render_direct(
                         english_atlas, english_container.blocks[index]
                     )
-                if reference_view.size != image.size:
-                    raise ValueError(
-                        f"English/current SCR dimensions differ for {index}: "
-                        f"{reference_view.size} != {image.size}"
-                    )
-                detected_decoration = None
-                detected_decoration_pixels = 0
+                japanese_view = None
                 if japanese_container is not None and japanese_atlas is not None:
                     japanese_view, _ = render_direct(
                         japanese_atlas, japanese_container.blocks[index]
                     )
+                # ``restore_jp_scr_canvas.py`` puts the Japanese retail canvas
+                # back on labels the English patch reshaped, so the source no
+                # longer agrees with the English reference.  That is accepted
+                # only when the canvas is exactly the Japanese one; any other
+                # disagreement still means the two containers describe
+                # different artwork and must stop the build.
+                canvas_restored = False
+                if reference_view.size != image.size:
+                    if japanese_view is None or japanese_view.size != image.size:
+                        raise ValueError(
+                            f"English/current SCR dimensions differ for {index}: "
+                            f"{reference_view.size} != {image.size}"
+                        )
+                    canvas_restored = True
+                detected_decoration = None
+                detected_decoration_pixels = 0
+                if japanese_view is not None:
                     detected_decoration = common_bottom_decoration(reference_view, japanese_view)
                     detected_decoration_pixels = sum(
                         value != 0 for value in detected_decoration.getdata()
+                    )
+                if canvas_restored and detected_decoration_pixels:
+                    # A restored canvas cannot host English-canvas decoration
+                    # art, and reconstructing it on the wider Japanese canvas
+                    # is out of scope, so the restore tool never selects these.
+                    raise ValueError(
+                        f"SCR {index} was restored to the Japanese canvas but "
+                        "still carries reconstructed decoration art"
                     )
 
                 decoration_explicit = "decoration" in row and str(row["decoration"]) != "auto"
@@ -333,7 +395,28 @@ def main(argv: list[str] | None = None) -> int:
                     if align_explicit
                     else ("left" if decoration_mode == "common_bottom" else "center")
                 )
-                image, font_size = render_korean(image.size, korean, align, decoration)
+                # Match the Japanese retail label only when both containers
+                # give the label the same canvas height; SCRs the English
+                # patch rebuilt into a different shape hold different art,
+                # so they keep the canvas-fit behaviour.  Canvas widths do
+                # differ often and are irrelevant to the ink height.
+                japanese_box = None
+                left_hint = None
+                if japanese_view is not None and japanese_view.height == image.height:
+                    japanese_box = japanese_ink_box(japanese_view, decoration)
+                    if align == "left" and japanese_box is not None:
+                        glyph_box = unique_ink_box(japanese_view, reference_view)
+                        if glyph_box is not None:
+                            left_hint = glyph_box[0]
+                image, font_size, fit_metrics = render_korean(
+                    image.size,
+                    korean,
+                    align,
+                    decoration,
+                    japanese_box,
+                    left_hint,
+                    args.vertical_slack,
+                )
                 image = quantize_i4(image)
                 render_records.append(
                     {
@@ -345,8 +428,14 @@ def main(argv: list[str] | None = None) -> int:
                         "decoration_pixels": decoration_pixels,
                         "decoration_auto_selected": not decoration_explicit,
                         "align_auto_selected": not align_explicit,
+                        "canvas_restored_to_japanese": canvas_restored,
+                        "english_dimensions": list(reference_view.size),
+                        "japanese_dimensions": (
+                            list(japanese_view.size) if japanese_view is not None else None
+                        ),
                         "dimensions": list(image.size),
                         "ascii_words": ASCII_WORD_RE.findall(korean),
+                        **fit_metrics,
                     }
                 )
             scr_blocks.append(index)
@@ -511,6 +600,7 @@ def main(argv: list[str] | None = None) -> int:
         "renderer": {
             "pillow": PIL.__version__,
             "freetype": features.version("freetype2"),
+            "text_fit": RENDERER_VERSION,
         },
         "translation_mapping": str(args.translations.resolve()) if args.translations else None,
         "translation_mapping_sha256": translation_mapping_sha256,
@@ -527,6 +617,7 @@ def main(argv: list[str] | None = None) -> int:
         "size": len(built),
         "outer_offsets_identical": verified.offsets == source.offsets,
         "bitmap_block": args.bitmap,
+        "vertical_slack": args.vertical_slack,
         "bitmap_dimensions": list(atlas.size),
         "tile_capacity": capacity,
         "deduplicated_tiles": len(patterns),

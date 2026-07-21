@@ -8,9 +8,10 @@ its original index, appends new Korean tiles, and rewrites translated SCRs
 only.  Preserved SCR blocks and all unrelated blocks remain byte-identical.
 
 The 256x240 ability-name atlas (block 438) already occupies 960 of the 1024
-indices available to the conventional SCR format.  Its Korean labels are
-therefore rendered as one compact 8x8 Malgun Gothic Bold glyph per character;
-the remaining groups retain the previously approved full-canvas rendering.
+indices available to the conventional SCR format.  Its 23 labels need 58
+distinct characters, which only fits the 64 free indices at one 8x8 tile per
+character, so those labels stay compact single-tile glyphs; the remaining
+groups retain the previously approved full-canvas rendering.
 """
 
 from __future__ import annotations
@@ -43,14 +44,15 @@ from repack_small_ui_atlases import (  # noqa: E402
 from extract_scr_atlas import render_direct  # noqa: E402
 
 
-WINDOWS_DIR = os.environ.get("WINDIR")
-DEFAULT_FONT = (
-    Path(WINDOWS_DIR) / "Fonts" / "malgunbd.ttf"
-    if WINDOWS_DIR
-    else Path("malgunbd.ttf")
+LOCAL_FONT_DIR = (
+    Path(os.environ["LOCALAPPDATA"]) / "Microsoft" / "Windows" / "Fonts"
+    if os.environ.get("LOCALAPPDATA")
+    else Path(".")
 )
+FONT_FILENAME = "NanumSquareNeo-cBd.ttf"
+DEFAULT_FONT = LOCAL_FONT_DIR / FONT_FILENAME
 FONT = DEFAULT_FONT
-FONT_SHA256 = "E8CBC0B2AFCC14FB45DFB6086D5102C0B23A96E7B6E708F3122ACDE1B86C9082"
+FONT_SHA256 = "4749FA5691157CF56A59D297B45E88894A646846048018CD7A4117FFB2869767"
 DIRECT_BITMAP = 518
 COMPACT_BITMAP = 438
 SMALL_BITMAPS = (334, 355, 433, 438, 923, 930, 947, 952, 959, 2714, 3489)
@@ -280,7 +282,7 @@ def main() -> int:
         "--font",
         type=Path,
         default=DEFAULT_FONT,
-        help="path to malgunbd.ttf; the pinned SHA-256 is always verified",
+        help=f"path to {FONT_FILENAME}; the pinned SHA-256 is always verified",
     )
     parser.add_argument(
         "--copy-block",
@@ -328,7 +330,7 @@ def main() -> int:
 
     actual_font_sha256 = sha256(FONT.read_bytes())
     if actual_font_sha256 != FONT_SHA256:
-        raise ValueError("Malgun Gothic Bold font hash drift")
+        raise ValueError(f"{FONT_FILENAME} font hash drift: {actual_font_sha256}")
     source = add00_tools.parse_container(source_path)
     approved = add00_tools.parse_container(approved_path)
     if len(source.blocks) != len(approved.blocks):
@@ -390,7 +392,13 @@ def main() -> int:
                     return entry
                 entry = old_capacity + len(appended)
                 if entry >= limit:
-                    raise ValueError(f"direct atlas {bitmap} exceeds 14-bit index space")
+                    raise ValueError(
+                        f"direct atlas {bitmap} exceeds 14-bit index space: "
+                        f"{old_capacity} original tiles plus {len(appended)} appended "
+                        f"Korean tiles reach the {limit} index ceiling; re-run "
+                        "repack_direct_scr_atlas.py with a larger --vertical-slack "
+                        "so the tallest labels occupy fewer distinct tiles"
+                    )
                 pattern_to_entry[pattern] = entry
                 appended.append(pattern)
                 return entry
@@ -478,6 +486,13 @@ def main() -> int:
                 "appended_unique_tiles": len(appended),
                 "physical_capacity": physical_capacity,
                 "index_limit": limit,
+                # How many more distinct Korean tiles a later translation
+                # change could add before this atlas runs out of indices.
+                "spare_appendable_tiles": (
+                    (limit // (source_atlas.width // 8)) * (source_atlas.width // 8)
+                    - old_capacity
+                    - len(appended)
+                ),
                 "maximum_written_index": max(
                     (entry & (0x3FFF if direct else 0x03FF))
                     for entries in entries_by_scr.values()

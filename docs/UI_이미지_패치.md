@@ -12,14 +12,33 @@
 
 ## 글꼴
 
-- 글꼴: 맑은 고딕 Bold (`malgunbd.ttf`)
-- SHA-256: `E8CBC0B2AFCC14FB45DFB6086D5102C0B23A96E7B6E708F3122ACDE1B86C9082`
+- 글꼴: 나눔스퀘어 네오 cBd (`NanumSquareNeo-cBd.ttf`)
+- SHA-256: `4749FA5691157CF56A59D297B45E88894A646846048018CD7A4117FFB2869767`
 - 런타임 대사 글꼴과 UI 이미지 글꼴은 같은 파일을 사용합니다.
 
-글꼴 파일은 Microsoft Windows의 시스템 글꼴이므로 저장소나 릴리스에
-재배포하지 않습니다. 빌더는 `%WINDIR%\Fonts\malgunbd.ttf`를 기본값으로
-사용하며, 다른 위치에 있는 합법적으로 취득한 같은 파일은 `--font`로
-지정할 수 있습니다. 어느 경우든 해시가 다르면 작업을 중단합니다.
+글꼴 파일은 저장소나 릴리스에 재배포하지 않습니다. 빌더는 사용자 글꼴
+폴더 `%LOCALAPPDATA%\Microsoft\Windows\Fonts\NanumSquareNeo-cBd.ttf`를
+기본값으로 사용하며, 다른 위치에 있는 같은 파일은 `--font`로 지정할 수
+있습니다. 어느 경우든 해시가 다르면 작업을 중단합니다.
+
+## 글자 크기 기준
+
+v1.0.7까지는 `draw_fitted_text`가 **영문판 캔버스에 들어갈 때까지** 글꼴을
+줄이는 방식이었습니다. 영문 라벨의 잉크 영역이 일본어 원본과 다르면 한국어가
+그 비율을 그대로 물려받아, 한글이 일본어보다 크거나 작게 나왔습니다.
+
+`tools/ui_text_fit.py`는 대신 **일본 정식판 라벨의 잉크 상자**를 측정해
+- 잉크 높이를 같게 맞추고,
+- 세로 중심을 같은 주사선에 놓으며,
+- 가로는 SCR 헤더가 고정한 캔버스를 넘칠 때만 축소합니다.
+
+일본판보다 커지는 후보는 같은 오차일 때 항상 탈락시키므로, 한글이 일본어보다
+큰 라벨은 사실상 사라집니다. 일본판과 캔버스 높이가 다른 SCR(`891`, `897`)은
+같은 그림이 아니므로 기존 캔버스 맞춤 동작을 유지합니다.
+
+캔버스 폭이 일본판보다 좁은 라벨(영문 단어가 짧아 SCR이 작게 잡힌 경우)은
+높이를 맞출 수 없어 여전히 작게 렌더링됩니다. SCR 헤더를 바꾸면 인덱스 보존
+감사가 실패하므로 이 제약은 의도적으로 유지합니다.
 
 ## 처리 대상
 
@@ -46,7 +65,7 @@ python -X utf8 .\tools\repack_direct_scr_atlas.py `
   --japanese .\reference\japanese\add00dat.bin `
   --english .\reference\english\add00dat.bin `
   --bitmap 518 `
-  --font "$env:WINDIR\Fonts\malgunbd.ttf" `
+  --font "$env:LOCALAPPDATA\Microsoft\Windows\Fonts\NanumSquareNeo-cBd.ttf" `
   --report .\build\ui_block518_audit.json `
   --preview-dir .\build\ui_block518_preview
 
@@ -55,7 +74,7 @@ python -X utf8 .\tools\repack_small_ui_atlases.py `
   --japanese .\reference\japanese\add00dat.bin `
   --english .\reference\english\add00dat.bin `
   --mapping .\data\ui_small_and_title_ko.json `
-  --font "$env:WINDIR\Fonts\malgunbd.ttf" `
+  --font "$env:LOCALAPPDATA\Microsoft\Windows\Fonts\NanumSquareNeo-cBd.ttf" `
   --report .\build\ui_small_title_audit.json `
   --preview-dir .\build\ui_small_title_preview
 
@@ -64,13 +83,13 @@ python -X utf8 .\tools\repack_preserve_indices.py `
   .\build\add00_safe_preloading.bin `
   --large-mapping .\data\ui_block518_ko.json `
   --small-mapping .\data\ui_small_and_title_ko.json `
-  --font "$env:WINDIR\Fonts\malgunbd.ttf" `
+  --font "$env:LOCALAPPDATA\Microsoft\Windows\Fonts\NanumSquareNeo-cBd.ttf" `
   --report .\build\ui_preserved_index_audit.json `
   --preview-dir .\build\ui_preserved_index_preview
 
 python -X utf8 .\tools\patch_now_loading_spr.py `
   .\build\add00_safe_preloading.bin .\build\add00_final.bin `
-  --font "$env:WINDIR\Fonts\malgunbd.ttf" `
+  --font "$env:LOCALAPPDATA\Microsoft\Windows\Fonts\NanumSquareNeo-cBd.ttf" `
   --logical-payload .\build\now_loading_ko_312x40.c4 `
   --report .\build\now_loading_audit.json
 
@@ -80,6 +99,14 @@ python -X utf8 .\tools\audit_shared_atlas_refs.py `
   --small-mapping .\data\ui_small_and_title_ko.json `
   --report .\build\shared_atlas_audit.json
 ```
+
+`repack_direct_scr_atlas.py`의 `--vertical-slack`은 라벨마다 비워 두는 주사선
+수입니다. 기본값 `0`이 일본판 잉크 높이를 가장 정확히 재현하지만, 아틀라스
+`518`은 원본 타일 8,448개 위에 한국어 타일 7,921개를 더해 14비트 인덱스 한계
+16,384개에 근접합니다(여유 15개). 번역 문자열을 고쳐 인덱스가 모자라면
+`repack_preserve_indices.py`가 그 사실을 알리며 중단하므로, 그때
+`--vertical-slack 1` 또는 `2`로 다시 만들면 됩니다. 인덱스 여유는
+`ui_preserved_index_audit.json`의 `spare_appendable_tiles`에 기록됩니다.
 
 앞의 두 재패커 결과는 한국어 목표 화면을 만드는 중간 참조 파일입니다.
 `add00_visual_reference.bin`을 ISO에 직접 넣으면 동적 타일 번호가 깨질 수
@@ -105,10 +132,11 @@ python -X utf8 .\tools\audit_shared_atlas_refs.py `
 | 영문판 참고 `add00dat.bin` | `E64985BD142EE15AAC4C1967E403F856FB1DE4003F93AC606D497AD33C08AB3B` |
 | 대형 아틀라스 매핑 JSON | `2CDE06DA4402B74E389CCDA32EAEBF68E3AF8902902152B654E09F3ADD3EDC7C` |
 | 소형·타이틀 매핑 JSON | `2CD0F3224AEE84E0EBC5B0D3788AD86A2FCBE6D0E4D78D8FAFF8BE945233E6AB` |
-| 대형 아틀라스 적용 결과 | `9A9B845AE5406FBFC2073C078B594514C42E7A0AF5DB0338EB927D3C0093BF7D` |
-| 소형·타이틀 시각 참조 결과 | `A89DDDBE4F936F570FD2D8E7DEEBEFFA4F81D530FB7879CE2E2A29D2870AA87D` |
-| 원본 인덱스 보존 결과 | `3F498CB445FFE34DD392833CE671C9C3D420EE09AC170814691B476CAFE48B97` |
-| 로딩 이미지까지 적용한 최종 결과 | `ED9E9F8AAD82D81CB2C9A7B1C8855D3F439CD90F65370D57086C9B3A528671D4` |
+| 글꼴 `NanumSquareNeo-cBd.ttf` | `4749FA5691157CF56A59D297B45E88894A646846048018CD7A4117FFB2869767` |
+| 대형 아틀라스 적용 결과 | `93D871B5F129AE3AEAC1D05788804A7F7CC1C093FB6E035AD772A1A42297D514` |
+| 소형·타이틀 시각 참조 결과 | `F2CA4E0FCB1386BBA5495516BE57A072021754BF11B8B33A81443086AF646643` |
+| 원본 인덱스 보존 결과 | `842E2E580715A9CA9486474ACB2AB08B261A6CCF302F9A430FD20343E9751FDE` |
+| 로딩 이미지까지 적용한 최종 결과 | `744AB20B893F6B4B2891F0F79DF088A14ECDBB93D868C672357726D6C7AAA2E2` |
 
 ## 형식과 검증
 
@@ -118,7 +146,8 @@ python -X utf8 .\tools\audit_shared_atlas_refs.py `
 - 기존 8×8 타일은 같은 번호에서 바이트 단위로 보존하고 새 한국어 타일만 뒤에 추가
 - 번역 대상 `SCR` 452개만 새 타일로 재매핑하고 비문자 `SCR` 32개는 그대로 보존
 - 정적 `SCR` 미참조 비공백 타일 1,383개도 동적 참조 후보로 간주해 전부 보존
-- 블록 `438`은 10비트 인덱스 한계 때문에 굵은 맑은 고딕 8×8 글리프를 사용
+- 블록 `438`은 10비트 인덱스 한계 때문에 한 글자당 8×8 글리프 하나를 사용
+  (라벨 23개의 고유 문자 58자 = 남은 인덱스 64개에 정확히 대응)
 - 팔레트·SPR 헤더·CEL을 보존하고, 로딩 SPR `3508`의 TEX 8개 외에는
   아틀라스 밖 블록의 페이로드 변경 금지
 - 재구성한 모든 SCR을 다시 렌더링해 목표 이미지와 픽셀 단위 비교
