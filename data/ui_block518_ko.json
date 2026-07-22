@@ -124,7 +124,8 @@
     },
     {
       "block_index": 549,
-      "korean": "에너지"
+      "korean": "EN",
+      "allow_ascii": true
     },
     {
       "block_index": 550,
@@ -180,7 +181,8 @@
     },
     {
       "block_index": 563,
-      "korean": "에너지 소비"
+      "korean": "소비 EN",
+      "allow_ascii": true
     },
     {
       "block_index": 564,
@@ -196,7 +198,7 @@
     },
     {
       "block_index": 567,
-      "korean": "사용 가능 크기"
+      "korean": "사용가능 크기"
     },
     {
       "block_index": 568,
@@ -240,11 +242,11 @@
     },
     {
       "block_index": 578,
-      "korean": "강화 파츠"
+      "korean": "강화파츠"
     },
     {
       "block_index": 579,
-      "korean": "강화 파츠 판매"
+      "korean": "강화파츠 판매"
     },
     {
       "block_index": 580,
@@ -252,11 +254,11 @@
     },
     {
       "block_index": 581,
-      "korean": "무기 성능"
+      "korean": "무기성능"
     },
     {
       "block_index": 582,
-      "korean": "무기 개조"
+      "korean": "무기개조"
     },
     {
       "block_index": 583,
@@ -268,11 +270,11 @@
     },
     {
       "block_index": 585,
-      "korean": "스킬 파츠 판매"
+      "korean": "스킬파츠 판매"
     },
     {
       "block_index": 586,
-      "korean": "파일럿 배치"
+      "korean": "환승"
     },
     {
       "block_index": 587,
@@ -344,7 +346,7 @@
     },
     {
       "block_index": 604,
-      "korean": "정신기"
+      "korean": "정신"
     },
     {
       "block_index": 605,
@@ -376,7 +378,7 @@
     },
     {
       "block_index": 612,
-      "korean": "파츠 사용"
+      "korean": "파츠"
     },
     {
       "block_index": 613,
@@ -424,7 +426,7 @@
     },
     {
       "block_index": 624,
-      "korean": "부대 목록"
+      "korean": "부대목록"
     },
     {
       "block_index": 625,
@@ -456,7 +458,7 @@
     },
     {
       "block_index": 632,
-      "korean": "수량"
+      "korean": "수"
     },
     {
       "block_index": 633,
@@ -492,7 +494,7 @@
     },
     {
       "block_index": 641,
-      "korean": "풀 개조 보너스"
+      "korean": "풀개조 보너스"
     },
     {
       "block_index": 642,
@@ -508,11 +510,13 @@
     },
     {
       "block_index": 645,
-      "korean": "체력"
+      "korean": "HP",
+      "allow_ascii": true
     },
     {
       "block_index": 646,
-      "korean": "에너지"
+      "korean": "EN",
+      "allow_ascii": true
     },
     {
       "block_index": 647,
@@ -528,19 +532,19 @@
     },
     {
       "block_index": 650,
-      "korean": "공중"
+      "korean": "공"
     },
     {
       "block_index": 651,
-      "korean": "지상"
+      "korean": "육"
     },
     {
       "block_index": 652,
-      "korean": "수중"
+      "korean": "해"
     },
     {
       "block_index": 653,
-      "korean": "우주"
+      "korean": "우"
     },
     {
       "block_index": 654,
@@ -548,7 +552,7 @@
     },
     {
       "block_index": 655,
-      "korean": "이동력 상승"
+      "korean": "이동력"
     },
     {
       "block_index": 656,
@@ -556,19 +560,19 @@
     },
     {
       "block_index": 657,
-      "korean": "공중"
+      "korean": "공"
     },
     {
       "block_index": 658,
-      "korean": "지상"
+      "korean": "육"
     },
     {
       "block_index": 659,
-      "korean": "수중"
+      "korean": "해"
     },
     {
       "block_index": 660,
-      "korean": "우주"
+      "korean": "우"
     },
     {
       "block_index": 661,
@@ -584,7 +588,8 @@
     },
     {
       "block_index": 664,
-      "korean": "에너지 소비"
+      "korean": "소비 EN",
+      "allow_ascii": true
     },
     {
       "block_index": 666,
@@ -608,7 +613,8 @@
     },
     {
       "block_index": 671,
-      "korean": "정신"
+      "korean": "SP",
+      "allow_ascii": true
     },
     {
       "block_index": 672,
@@ -624,35 +630,35 @@
     },
     {
       "block_index": 675,
-      "korean": "대상: 본체"
+      "korean": "대상:본체"
     },
     {
       "block_index": 676,
-      "korean": "대상: 본체"
+      "korean": "대상:본체"
     },
     {
       "block_index": 677,
-      "korean": "대상: 머리"
+      "korean": "대상:머리"
     },
     {
       "block_index": 678,
-      "korean": "대상: 팔"
+      "korean": "대상:팔"
     },
     {
       "block_index": 679,
-      "korean": "대상: 다리"
+      "korean": "대상:다리"
     },
     {
       "block_index": 680,
-      "korean": "대상: 조종계"
+      "korean": "대상:조종계"
     },
     {
       "block_index": 681,
-      "korean": "대상: 무장"
+      "korean": "대상:무장"
     },
     {
       "block_index": 682,
-      "korean": "대상: 엔진"
+      "korean": "대상:엔진"
     },
     {
       "block_index": 683,
@@ -728,7 +734,8 @@
     },
     {
       "block_index": 701,
-      "korean": "정신 소비"
+      "korean": "소비 SP",
+      "allow_ascii": true
     },
     {
       "block_index": 702,
@@ -752,7 +759,7 @@
     },
     {
       "block_index": 707,
-      "korean": "운용 중인 기체"
+      "korean": "운용중인 기체"
     },
     {
       "block_index": 708,
@@ -764,7 +771,7 @@
     },
     {
       "block_index": 712,
-      "korean": "<< 무기 성능"
+      "korean": "<< 무기성능"
     },
     {
       "block_index": 713,
@@ -828,7 +835,7 @@
     },
     {
       "block_index": 728,
-      "korean": "파일럿 특수 기능 검색"
+      "korean": "특수기능 검색"
     },
     {
       "block_index": 729,
@@ -912,11 +919,11 @@
     },
     {
       "block_index": 749,
-      "korean": "일반 공격"
+      "korean": "일반공격"
     },
     {
       "block_index": 750,
-      "korean": "부위 공격"
+      "korean": "부위공격"
     },
     {
       "block_index": 751,
@@ -928,27 +935,27 @@
     },
     {
       "block_index": 753,
-      "korean": "대상: 본체"
+      "korean": "대상:본체"
     },
     {
       "block_index": 754,
-      "korean": "대상: 머리"
+      "korean": "대상:머리"
     },
     {
       "block_index": 755,
-      "korean": "대상: 팔"
+      "korean": "대상:팔"
     },
     {
       "block_index": 756,
-      "korean": "대상: 다리"
+      "korean": "대상:다리"
     },
     {
       "block_index": 757,
-      "korean": "대상: 조종계"
+      "korean": "대상:조종계"
     },
     {
       "block_index": 758,
-      "korean": "대상: 엔진"
+      "korean": "대상:엔진"
     },
     {
       "block_index": 759,
@@ -1016,7 +1023,7 @@
     },
     {
       "block_index": 787,
-      "korean": "대상: 무장"
+      "korean": "대상:무장"
     },
     {
       "block_index": 788,
@@ -1080,7 +1087,7 @@
     },
     {
       "block_index": 805,
-      "korean": "무기 성능 >>"
+      "korean": "무기성능 >>"
     },
     {
       "block_index": 806,
@@ -1124,7 +1131,7 @@
     },
     {
       "block_index": 816,
-      "korean": "환장 전 유닛"
+      "korean": "환장전 유닛"
     },
     {
       "block_index": 817,
@@ -1148,7 +1155,7 @@
     },
     {
       "block_index": 823,
-      "korean": "정신기 효과"
+      "korean": "정신"
     },
     {
       "block_index": 824,
@@ -1180,11 +1187,12 @@
     },
     {
       "block_index": 831,
-      "korean": "잔탄 재장전"
+      "korean": "잔탄재장전"
     },
     {
       "block_index": 832,
-      "korean": "정신"
+      "korean": "SP",
+      "allow_ascii": true
     },
     {
       "block_index": 833,
@@ -1268,7 +1276,8 @@
     },
     {
       "block_index": 853,
-      "korean": "소"
+      "korean": "S",
+      "allow_ascii": true
     },
     {
       "block_index": 854,
@@ -1276,7 +1285,8 @@
     },
     {
       "block_index": 855,
-      "korean": "대"
+      "korean": "L",
+      "allow_ascii": true
     },
     {
       "block_index": 856,
@@ -1312,11 +1322,12 @@
     },
     {
       "block_index": 864,
-      "korean": "전투 연출"
+      "korean": "전투연출"
     },
     {
       "block_index": 865,
-      "korean": "전투 음악"
+      "korean": "전투BGM",
+      "allow_ascii": true
     },
     {
       "block_index": 866,
@@ -1368,7 +1379,7 @@
     },
     {
       "block_index": 878,
-      "korean": "클리어 상황"
+      "korean": "클리어상황"
     },
     {
       "block_index": 879,
@@ -1380,7 +1391,7 @@
     },
     {
       "block_index": 881,
-      "korean": "환급 자금"
+      "korean": "환급자금"
     },
     {
       "block_index": 882,
@@ -1472,27 +1483,27 @@
     },
     {
       "block_index": 904,
-      "korean": "파일럿 특수 기능 검색"
+      "korean": "특수기능 검색"
     },
     {
       "block_index": 905,
-      "korean": "기체 특수 능력 검색"
+      "korean": "특수능력 검색"
     },
     {
       "block_index": 906,
-      "korean": "무기 선택"
+      "korean": "무기선택"
     },
     {
       "block_index": 907,
-      "korean": "전체 해체"
+      "korean": "전체해체"
     },
     {
       "block_index": 908,
-      "korean": "전체 파츠화"
+      "korean": "전체파츠화"
     },
     {
       "block_index": 909,
-      "korean": "운용 목록"
+      "korean": "운용목록"
     },
     {
       "block_index": 910,
@@ -1504,7 +1515,8 @@
     },
     {
       "block_index": 912,
-      "korean": "에너지"
+      "korean": "EN",
+      "allow_ascii": true
     },
     {
       "block_index": 913,
@@ -1520,11 +1532,11 @@
     },
     {
       "block_index": 916,
-      "korean": "강화 파츠 판매"
+      "korean": "강화파츠 판매"
     },
     {
       "block_index": 917,
-      "korean": "스킬 파츠 판매"
+      "korean": "스킬파츠 판매"
     },
     {
       "block_index": 918,
@@ -1544,7 +1556,7 @@
     },
     {
       "block_index": 922,
-      "korean": "스킬/에이스\n보너스"
+      "korean": "스킬\n에이스"
     }
   ]
 }

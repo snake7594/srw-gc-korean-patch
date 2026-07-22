@@ -45,7 +45,8 @@ from extract_scr_atlas import contact_sheets, render_direct  # noqa: E402
 
 from ui_text_fit import (  # noqa: E402
     RENDERER_VERSION,
-    choose_font,
+    choose_font_condensed,
+    draw_condensed_text,
     japanese_ink_box,
     place_ink,
     unique_ink_box,
@@ -87,7 +88,6 @@ def render_korean(
     """
 
     image = background.copy() if background is not None else Image.new("L", size, 0)
-    draw = ImageDraw.Draw(image)
     width, height = size
     horizontal_margin = 1 if width <= 8 else 2
     spacing = -2 if "\n" in text else 0
@@ -97,7 +97,7 @@ def render_korean(
     if japanese_box is not None:
         target_height = japanese_box[3] - japanese_box[1]
         target_center = (japanese_box[1] + japanese_box[3]) / 2
-    font, font_size, ink = choose_font(
+    font, font_size, ink, aspect = choose_font_condensed(
         FONT,
         text,
         region_size=size,
@@ -116,13 +116,16 @@ def render_korean(
         target_center_y=target_center,
         left_hint=left_hint,
     )
-    if shadow:
-        draw.multiline_text(
-            (x + 1, y + 1), text, font=font, spacing=spacing,
-            align="center", fill=64,
-        )
-    draw.multiline_text(
-        (x, y), text, font=font, spacing=spacing, align="center", fill=255
+    draw_condensed_text(
+        image,
+        (x, y),
+        text,
+        font,
+        aspect=aspect,
+        spacing=spacing,
+        align="center",
+        fill=255,
+        shadow_fill=64 if shadow else None,
     )
     return image, font_size, {
         "japanese_ink_box": list(japanese_box) if japanese_box else None,
@@ -130,6 +133,7 @@ def render_korean(
         "korean_ink_height": ink[3] - ink[1],
         "korean_ink_width": ink[2] - ink[0],
         "korean_ink_box": [x + ink[0], y + ink[1], x + ink[2], y + ink[3]],
+        "condensed_aspect": aspect,
         "matched_japanese_height": target_height is not None,
     }
 
@@ -323,7 +327,11 @@ def main(argv: list[str] | None = None) -> int:
                         f"Japanese remains in Korean translation for SCR {index}: "
                         f"{korean!r}"
                     )
-                if ASCII_WORD_RE.search(korean):
+                if ASCII_WORD_RE.search(korean) and not bool(row.get("allow_ascii")):
+                    # ``allow_ascii`` marks labels whose Japanese retail
+                    # original is itself Latin (EN, SP, HP, S, L, V-MAX,
+                    # 戦闘BGM), where keeping the Latin form matches the
+                    # retail screen instead of leaking English.
                     raise ValueError(
                         f"English word remains in Korean translation for SCR {index}: "
                         f"{korean!r}"
