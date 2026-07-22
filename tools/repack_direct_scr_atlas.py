@@ -44,11 +44,14 @@ import add00_tools  # noqa: E402
 from extract_scr_atlas import contact_sheets, render_direct  # noqa: E402
 
 from ui_text_fit import (  # noqa: E402
+    INK_THRESHOLD,
     RENDERER_VERSION,
     choose_font_condensed,
     draw_condensed_text,
+    ink_extent,
     japanese_ink_box,
     place_ink,
+    scale_ink_box,
     unique_ink_box,
 )
 
@@ -154,6 +157,235 @@ def quantize_i4(image: Image.Image) -> Image.Image:
     output = Image.new("L", image.size)
     output.putdata([max(0, min(15, (value + 8) // 17)) * 17 for value in image.getdata()])
     return output
+
+
+#: I4 level 8.  Retail glyph art (cores, halos, drop shadows) sits at this
+#: level or above; the shelf/platform decoration art never exceeds level 7.
+GLYPH_LEVEL = 136
+
+
+def reconstruct_jp_decoration(
+    japanese_view: Image.Image,
+) -> tuple[Image.Image | None, dict[str, object]]:
+    """Rebuild the Japanese label's non-glyph shelf art on its own canvas.
+
+    Decorated retail labels draw the glyph run over a horizontal shelf whose
+    rows are constant-valued in their interior with short sheared end caps.
+    Columns that carry any glyph ink (level >= 8 anywhere in the column) are
+    occluded; their shelf pixels are recovered from the nearest glyph-free
+    column of the same row, which is exact for row-constant art.
+    """
+
+    width, height = japanese_view.size
+    pixels = japanese_view.load()
+    clean_columns = [
+        x
+        for x in range(width)
+        if all(pixels[x, y] < GLYPH_LEVEL for y in range(height))
+    ]
+    details: dict[str, object] = {
+        "clean_columns": len(clean_columns),
+        "occluded_columns": width - len(clean_columns),
+    }
+    if not clean_columns:
+        return None, {**details, "reason": "no_clean_columns"}
+    clean_set = set(clean_columns)
+    output = Image.new("L", japanese_view.size, 0)
+    out = output.load()
+    nonuniform_rows: list[int] = []
+    band_rows: list[int] = []
+    for y in range(height):
+        if not any(pixels[x, y] for x in clean_columns):
+            continue
+        band_rows.append(y)
+        row: list[int | None] = [
+            pixels[x, y] if x in clean_set else None for x in range(width)
+        ]
+        interior = {
+            row[x]
+            for x in range(12, max(12, width - 12))
+            if x in clean_set and row[x]
+        }
+        if len(interior) > 1:
+            nonuniform_rows.append(y)
+        current: int | None = None
+        for x in range(width):
+            if row[x] is not None:
+                current = row[x]
+            elif current is not None:
+                row[x] = current
+        current = None
+        for x in range(width - 1, -1, -1):
+            if x in clean_set:
+                current = row[x]
+            elif row[x] is None and current is not None:
+                row[x] = current
+        for x in range(width):
+            out[x, y] = row[x] or 0
+    decoration_pixels = sum(value != 0 for value in output.getdata())
+    box = output.getbbox()
+    contiguous = bool(band_rows) and band_rows == list(
+        range(band_rows[0], band_rows[-1] + 1)
+    )
+    accepted = (
+        decoration_pixels >= 100
+        and box is not None
+        and (box[2] - box[0]) >= 0.6 * width
+        and len(band_rows) >= 4
+        and contiguous
+        and band_rows[0] >= height // 3
+    )
+    details.update(
+        {
+            "band_rows": band_rows,
+            "band_rows_contiguous": contiguous,
+            "nonuniform_rows": nonuniform_rows,
+            "decoration_pixels": decoration_pixels,
+            "decoration_bbox": list(box) if box else None,
+            "accepted": accepted,
+        }
+    )
+    if not accepted:
+        # Plain labels can leave a faint anti-aliasing smear in glyph-free
+        # columns; anything that does not look like the retail shelf keeps
+        # the plain black canvas.
+        return None, details
+    return output, details
+
+
+def ink_column_segments(
+    japanese_view: Image.Image,
+    background: Image.Image | None,
+    *,
+    threshold: int = INK_THRESHOLD,
+    gap: int = 12,
+) -> list[tuple[int, int]]:
+    """Column runs of Japanese glyph ink separated by ``gap`` empty columns.
+
+    Retail table-header labels (空 陸 海 宇) space one term per value
+    column; the runs let Korean terms be re-centred on the same columns.
+    """
+
+    view = japanese_view.convert("L")
+    if background is not None:
+        base = Image.new("L", view.size, 0)
+        base.paste(background.convert("L"), (0, 0))
+        data = [
+            abs(a - b) for a, b in zip(view.getdata(), base.getdata())
+        ]
+    else:
+        data = list(view.getdata())
+    width, height = view.size
+    column_has_ink = [
+        any(data[y * width + x] > threshold for y in range(height))
+        for x in range(width)
+    ]
+    segments: list[tuple[int, int]] = []
+    start: int | None = None
+    empty = 0
+    for x in range(width):
+        if column_has_ink[x]:
+            if start is None:
+                start = x
+            end = x
+            empty = 0
+        elif start is not None:
+            empty += 1
+            if empty >= gap:
+                segments.append((start, end + 1))
+                start = None
+    if start is not None:
+        segments.append((start, end + 1))
+    return segments
+
+
+def render_korean_segmented(
+    size: tuple[int, int],
+    words: list[str],
+    segments: list[tuple[int, int]],
+    background: Image.Image | None,
+    japanese_box: tuple[int, int, int, int],
+    vertical_slack: int = 0,
+) -> tuple[Image.Image, int, dict[str, object]]:
+    """Draw one Korean word centred on each Japanese ink-column segment."""
+
+    if len(words) != len(segments):
+        raise ValueError("word count does not match segment count")
+    image = background.copy() if background is not None else Image.new("L", size, 0)
+    width, height = size
+    target_height = japanese_box[3] - japanese_box[1]
+    target_center = (japanese_box[1] + japanese_box[3]) / 2
+    windows: list[tuple[int, int]] = []
+    for position, (start, end) in enumerate(segments):
+        left = 0 if position == 0 else (segments[position - 1][1] + start) // 2
+        right = (
+            width
+            if position == len(segments) - 1
+            else (end + segments[position + 1][0]) // 2
+        )
+        windows.append((left, right))
+    choices = [
+        choose_font_condensed(
+            FONT,
+            word,
+            region_size=(right - left, height),
+            target_height=target_height,
+            spacing=0,
+            shadow=True,
+            horizontal_margin=1,
+            vertical_slack=vertical_slack,
+        )
+        for word, (left, right) in zip(words, windows)
+    ]
+    font_size = min(choice[1] for choice in choices)
+    aspect = min(choice[3] for choice in choices)
+    font = ImageFont.truetype(str(FONT), font_size)
+    ink_heights: list[int] = []
+    ink_boxes: list[list[int]] = []
+    for word, (segment_start, segment_end), (left, right) in zip(
+        words, segments, windows
+    ):
+        box = ink_extent(word, font, spacing=0, align="center", shadow=True)
+        if box is None:
+            raise ValueError(f"segmented word {word!r} rendered no ink")
+        condensed = scale_ink_box(box, aspect)
+        ink_width = condensed[2] - condensed[0]
+        ink_height = condensed[3] - condensed[1]
+        center = (segment_start + segment_end) / 2
+        x = int(round(center - ink_width / 2))
+        x = max(left + 1, min(x, right - 1 - ink_width))
+        y = int(round(target_center - ink_height / 2))
+        y = max(0, min(y, height - ink_height))
+        draw_condensed_text(
+            image,
+            (x - condensed[0], y - condensed[1]),
+            word,
+            font,
+            aspect=aspect,
+            spacing=0,
+            align="center",
+            fill=255,
+            shadow_fill=64,
+        )
+        ink_heights.append(ink_height)
+        ink_boxes.append([x, y, x + ink_width, y + ink_height])
+    return image, font_size, {
+        "japanese_ink_box": list(japanese_box),
+        "japanese_ink_height": target_height,
+        "korean_ink_height": max(ink_heights),
+        "korean_ink_width": ink_boxes[-1][2] - ink_boxes[0][0],
+        "korean_ink_box": [
+            ink_boxes[0][0],
+            min(box[1] for box in ink_boxes),
+            ink_boxes[-1][2],
+            max(box[3] for box in ink_boxes),
+        ],
+        "condensed_aspect": aspect,
+        "matched_japanese_height": True,
+        "segmented_words": words,
+        "japanese_segments": [list(segment) for segment in segments],
+        "segment_ink_boxes": ink_boxes,
+    }
 
 
 def common_bottom_decoration(source: Image.Image, japanese: Image.Image) -> Image.Image:
@@ -360,33 +592,49 @@ def main(argv: list[str] | None = None) -> int:
                             f"{reference_view.size} != {image.size}"
                         )
                     canvas_restored = True
-                detected_decoration = None
-                detected_decoration_pixels = 0
-                if japanese_view is not None:
-                    detected_decoration = common_bottom_decoration(reference_view, japanese_view)
-                    detected_decoration_pixels = sum(
-                        value != 0 for value in detected_decoration.getdata()
-                    )
-                if canvas_restored and detected_decoration_pixels:
-                    # A restored canvas cannot host English-canvas decoration
-                    # art, and reconstructing it on the wider Japanese canvas
-                    # is out of scope, so the restore tool never selects these.
-                    raise ValueError(
-                        f"SCR {index} was restored to the Japanese canvas but "
-                        "still carries reconstructed decoration art"
-                    )
 
                 decoration_explicit = "decoration" in row and str(row["decoration"]) != "auto"
-                if decoration_explicit:
-                    decoration_mode = str(row["decoration"])
-                else:
-                    decoration_mode = (
-                        "common_bottom" if detected_decoration_pixels else "none"
+                platform_details: dict[str, object] | None = None
+                if canvas_restored:
+                    # The label lives on the Japanese retail canvas again, so
+                    # any shelf/bevel art is rebuilt from the Japanese view
+                    # itself rather than from the English-canvas overlap.
+                    if decoration_explicit:
+                        raise ValueError(
+                            f"SCR {index} is canvas-restored; explicit decoration "
+                            "modes are not supported on restored canvases"
+                        )
+                    detected_decoration, platform_details = reconstruct_jp_decoration(
+                        japanese_view
                     )
-                if decoration_mode == "common_bottom":
+                    detected_decoration_pixels = (
+                        int(platform_details.get("decoration_pixels", 0))
+                        if detected_decoration is not None
+                        else 0
+                    )
+                    decoration_mode = (
+                        "jp_platform" if detected_decoration_pixels else "none"
+                    )
+                else:
+                    detected_decoration = None
+                    detected_decoration_pixels = 0
+                    if japanese_view is not None:
+                        detected_decoration = common_bottom_decoration(
+                            reference_view, japanese_view
+                        )
+                        detected_decoration_pixels = sum(
+                            value != 0 for value in detected_decoration.getdata()
+                        )
+                    if decoration_explicit:
+                        decoration_mode = str(row["decoration"])
+                    else:
+                        decoration_mode = (
+                            "common_bottom" if detected_decoration_pixels else "none"
+                        )
+                if decoration_mode in ("common_bottom", "jp_platform"):
                     if detected_decoration is None:
                         raise ValueError(
-                            f"SCR {index} needs JP/EN references for common_bottom decoration"
+                            f"SCR {index} needs JP/EN references for {decoration_mode} decoration"
                         )
                     decoration = detected_decoration
                     decoration_pixels = detected_decoration_pixels
@@ -401,7 +649,11 @@ def main(argv: list[str] | None = None) -> int:
                 align = (
                     str(row["align"])
                     if align_explicit
-                    else ("left" if decoration_mode == "common_bottom" else "center")
+                    else (
+                        "left"
+                        if decoration_mode in ("common_bottom", "jp_platform")
+                        else "center"
+                    )
                 )
                 # Match the Japanese retail label only when both containers
                 # give the label the same canvas height; SCRs the English
@@ -413,18 +665,39 @@ def main(argv: list[str] | None = None) -> int:
                 if japanese_view is not None and japanese_view.height == image.height:
                     japanese_box = japanese_ink_box(japanese_view, decoration)
                     if align == "left" and japanese_box is not None:
-                        glyph_box = unique_ink_box(japanese_view, reference_view)
-                        if glyph_box is not None:
-                            left_hint = glyph_box[0]
-                image, font_size, fit_metrics = render_korean(
-                    image.size,
-                    korean,
-                    align,
-                    decoration,
-                    japanese_box,
-                    left_hint,
-                    args.vertical_slack,
-                )
+                        if canvas_restored:
+                            # The Korean run starts where the retail glyphs do.
+                            left_hint = japanese_box[0]
+                        else:
+                            glyph_box = unique_ink_box(japanese_view, reference_view)
+                            if glyph_box is not None:
+                                left_hint = glyph_box[0]
+                segments: list[tuple[int, int]] = []
+                segment_words: list[str] = []
+                if canvas_restored and japanese_box is not None:
+                    segments = ink_column_segments(japanese_view, decoration)
+                    segment_words = korean.split()
+                if len(segments) >= 2 and len(segment_words) == len(segments):
+                    # Retail table headers (空 陸 海 宇) place one term per
+                    # value column; keep each Korean term on its column.
+                    image, font_size, fit_metrics = render_korean_segmented(
+                        image.size,
+                        segment_words,
+                        segments,
+                        decoration,
+                        japanese_box,
+                        args.vertical_slack,
+                    )
+                else:
+                    image, font_size, fit_metrics = render_korean(
+                        image.size,
+                        korean,
+                        align,
+                        decoration,
+                        japanese_box,
+                        left_hint,
+                        args.vertical_slack,
+                    )
                 image = quantize_i4(image)
                 render_records.append(
                     {
@@ -437,6 +710,7 @@ def main(argv: list[str] | None = None) -> int:
                         "decoration_auto_selected": not decoration_explicit,
                         "align_auto_selected": not align_explicit,
                         "canvas_restored_to_japanese": canvas_restored,
+                        "jp_platform_reconstruction": platform_details,
                         "english_dimensions": list(reference_view.size),
                         "japanese_dimensions": (
                             list(japanese_view.size) if japanese_view is not None else None

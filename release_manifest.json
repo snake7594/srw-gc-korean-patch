@@ -1,6 +1,6 @@
 {
   "schema": "srw-gc-korean-release-v1",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "game": {
     "title": "슈퍼로봇대전 GC",
     "region": "Japan",
@@ -12,13 +12,13 @@
   },
   "result": {
     "size": 1459978240,
-    "sha256": "AD825C5EA2A364900BAF00CC6A9503C9BED470549FC5E7FD605F2C6C5B3F0D71"
+    "sha256": "0B02099C3C1B2FD5BDD2A8D82827ABFD52876CBB077C389BEC5692A723B358EA"
   },
   "patch": {
-    "filename": "SRW_GC_Korean_v1.0.9.xdelta",
+    "filename": "SRW_GC_Korean_v1.0.10.xdelta",
     "format": "VCDIFF/xdelta3",
-    "size": 109514806,
-    "sha256": "F416F3E519526F3468A04D233CB8590993BAB389EC3980195EDFB76B855F0AF3",
+    "size": 109540939,
+    "sha256": "9A9E6EB84ACB0D7B937458A7B9A40F209D4A9850A0A4D6A2BBC8D4132CA5A35F",
     "secondary_compressor": "lzma",
     "application_header": false
   },
@@ -93,7 +93,7 @@
     "dialogue_window_line_count_violations": 0,
     "ui_font": "NanumSquareNeo-cBd",
     "runtime_font_glyphs_rerendered": 1370,
-    "ui_scr_canvases_restored_to_japanese": 152,
+    "ui_scr_canvases_restored_to_japanese": 175,
     "ui_labels_height_matched_ratio_ge_095": 283,
     "ui_labels_severely_undersized_before": 21,
     "ui_labels_severely_undersized_after": 10,
@@ -104,6 +104,10 @@
     "ui_target_height_ratio_mean_before": 0.803,
     "ui_target_height_ratio_mean_after": 0.969,
     "ui_target_height_ratio_min_before": 0.435,
-    "ui_target_height_ratio_min_after": 0.909
+    "ui_target_height_ratio_min_after": 0.909,
+    "ui_canvas_dimension_mismatches_remaining": 0,
+    "ui_overflowing_labels_fixed": 23,
+    "title_logo_restored_to_japanese_blocks": 10,
+    "ui_platform_decorations_reconstructed": 51
   }
 }
