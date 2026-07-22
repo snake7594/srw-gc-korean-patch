@@ -40,7 +40,8 @@ import add00_tools  # noqa: E402
 
 from ui_text_fit import (  # noqa: E402
     RENDERER_VERSION,
-    choose_font,
+    choose_font_condensed,
+    draw_condensed_text,
     japanese_ink_box,
     place_ink,
 )
@@ -59,6 +60,12 @@ JAPANESE_RE = re.compile(r"[\u3041-\u3096\u30a1-\u30fa\u3400-\u9fff]")
 ASCII_WORD_RE = re.compile(r"[A-Za-z]+")
 SUPPORTED_BITMAPS = (334, 355, 433, 438, 923, 930, 947, 952, 959, 2714, 3489)
 FLIP_FLAGS = (0x0000, 0x0400, 0x0800, 0x0C00)
+
+#: Atlases whose labels sit on reconstructed art (bevel keys, pills, the
+#: gradient selector) or whose tile budget is deliberately capped (438).
+#: Their renderings keep the historical uncondensed behaviour so the
+#: reconstructed backgrounds and tile counts stay exactly as approved.
+UNCONDENSED_BITMAPS = frozenset({334, 355, 433, 438, 952})
 
 
 def sha256(data: bytes) -> str:
@@ -210,6 +217,7 @@ def draw_fitted_text(
     shadow: int | None = 64,
     maximum_font_size: int | None = None,
     japanese_box: tuple[int, int, int, int] | None = None,
+    minimum_aspect: float = 0.6,
 ) -> tuple[Image.Image, int, tuple[int, int, int, int], dict[str, object]]:
     """Reproduce the Japanese label's ink height inside a canvas or subregion.
 
@@ -221,7 +229,6 @@ def draw_fitted_text(
     """
 
     output = background.copy().convert("L")
-    draw = ImageDraw.Draw(output)
     if region is None:
         region = (0, 0, output.width, output.height)
     left, top, right, bottom = region
@@ -232,7 +239,7 @@ def draw_fitted_text(
     if japanese_box is not None:
         target_height = japanese_box[3] - japanese_box[1]
         target_center = (japanese_box[1] + japanese_box[3]) / 2
-    font, font_size, ink = choose_font(
+    font, font_size, ink, aspect = choose_font_condensed(
         FONT,
         text,
         region_size=(width, height),
@@ -242,6 +249,7 @@ def draw_fitted_text(
         horizontal_margin=2,
         vertical_slack=0,
         maximum_font_size=maximum_font_size,
+        minimum_aspect=minimum_aspect,
     )
     x, y = place_ink(
         ink,
@@ -250,13 +258,16 @@ def draw_fitted_text(
         horizontal_margin=2,
         target_center_y=target_center,
     )
-    if shadow is not None:
-        draw.multiline_text(
-            (x + 1, y + 1), text, font=font, spacing=spacing,
-            align="center", fill=shadow,
-        )
-    draw.multiline_text(
-        (x, y), text, font=font, spacing=spacing, align="center", fill=fill
+    draw_condensed_text(
+        output,
+        (x, y),
+        text,
+        font,
+        aspect=aspect,
+        spacing=spacing,
+        align="center",
+        fill=fill,
+        shadow_fill=shadow,
     )
     metrics = {
         "japanese_ink_box": list(japanese_box) if japanese_box else None,
@@ -264,6 +275,7 @@ def draw_fitted_text(
         "korean_ink_height": ink[3] - ink[1],
         "korean_ink_width": ink[2] - ink[0],
         "korean_ink_box": [x + ink[0], y + ink[1], x + ink[2], y + ink[3]],
+        "condensed_aspect": aspect,
         "matched_japanese_height": target_height is not None,
     }
     return output, font_size, region, metrics
@@ -330,6 +342,7 @@ def render_korean_label(
         shadow=shadow,
         maximum_font_size=maximum_font_size,
         japanese_box=japanese_box,
+        minimum_aspect=1.0 if bitmap in UNCONDENSED_BITMAPS else 0.6,
     )
     result = quantize_i4(result)
     return result, {
@@ -547,7 +560,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(f"empty Korean proposal for SCR {index}")
             if JAPANESE_RE.search(korean):
                 raise ValueError(f"Japanese remains in Korean proposal {index}: {korean!r}")
-            if ASCII_WORD_RE.search(korean):
+            if ASCII_WORD_RE.search(korean) and not bool(row.get("allow_ascii")):
+                # ``allow_ascii`` marks labels whose Japanese retail original
+                # is itself Latin (e.g. V-MAX), kept verbatim on purpose.
                 raise ValueError(f"English word remains in Korean proposal {index}: {korean!r}")
             target, render_record = render_korean_label(
                 bitmap,

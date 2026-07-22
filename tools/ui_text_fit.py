@@ -19,10 +19,24 @@ are untouched.
 
 from __future__ import annotations
 
+import math
+
 from PIL import Image, ImageDraw, ImageFont
 
 
-RENDERER_VERSION = "japanese-ink-matched-v1"
+RENDERER_VERSION = "japanese-ink-matched-v2-condensed"
+
+#: Horizontal condensation steps tried before giving up target height.  The
+#: Japanese retail UI face is itself horizontally condensed (強化パーツ runs
+#: at roughly 0.69 width per em at ink height 23), so squeezing the Korean
+#: rendering the same way reproduces the retail look instead of shrinking
+#: the whole face.  1.0 comes first so labels that fit naturally keep the
+#: exact pre-condensation rendering.
+CONDENSED_ASPECT_STEPS = (1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6)
+
+#: Below this width-per-em ratio Korean glyphs stop being comfortably
+#: legible at menu sizes, so the chooser falls back to a smaller face.
+MINIMUM_CONDENSED_ASPECT = 0.6
 
 #: Pixels at or below this level count as canvas rather than glyph.  Atlas
 #: pixels are 4-bit, so ``add00_tools.decode_i4`` expands level *n* to
@@ -225,6 +239,188 @@ def choose_font(
             f"font sizes {minimum_font_size}..{ceiling})"
         )
     return best[2], best[1], best[4]
+
+
+def scale_ink_box(
+    box: tuple[int, int, int, int], aspect: float
+) -> tuple[int, int, int, int]:
+    """Conservative ink box after squeezing a rendering to ``aspect``."""
+
+    if aspect >= 0.9995:
+        return box
+    return (
+        math.floor(box[0] * aspect),
+        box[1],
+        math.ceil(box[2] * aspect),
+        box[3],
+    )
+
+
+def choose_font_condensed(
+    font_path,
+    text: str,
+    *,
+    region_size: tuple[int, int],
+    target_height: int | None,
+    spacing: int = 0,
+    align: str = "center",
+    shadow: bool = False,
+    horizontal_margin: int = 2,
+    vertical_slack: int = 0,
+    maximum_font_size: int | None = None,
+    minimum_font_size: int = 6,
+    minimum_aspect: float = MINIMUM_CONDENSED_ASPECT,
+) -> tuple[ImageFont.FreeTypeFont, int, tuple[int, int, int, int], float]:
+    """``choose_font`` with horizontal condensation before face shrinking.
+
+    When the face whose ink height matches the Japanese label would overflow
+    the region horizontally, the rendering is squeezed sideways (down to
+    ``minimum_aspect``) instead of dropping to a smaller face.  The returned
+    ink box is the condensed footprint, so ``place_ink`` positions it
+    directly.  Aspect 1.0 short-circuits to the historical behaviour and
+    yields bit-identical output for labels that never needed squeezing.
+    """
+
+    if target_height is None:
+        font, font_size, box = choose_font(
+            font_path,
+            text,
+            region_size=region_size,
+            target_height=None,
+            spacing=spacing,
+            align=align,
+            shadow=shadow,
+            horizontal_margin=horizontal_margin,
+            vertical_slack=vertical_slack,
+            maximum_font_size=maximum_font_size,
+            minimum_font_size=minimum_font_size,
+        )
+        return font, font_size, box, 1.0
+
+    region_width, region_height = region_size
+    usable_width = region_width - horizontal_margin * 2
+    usable_height = region_height - vertical_slack
+    ceiling = maximum_font_size or min(64, region_height + 8)
+    measured: dict[int, tuple[ImageFont.FreeTypeFont, tuple[int, int, int, int] | None]] = {}
+    overall: (
+        tuple[int, int, ImageFont.FreeTypeFont, int, tuple[int, int, int, int], float]
+        | None
+    ) = None
+    for aspect in CONDENSED_ASPECT_STEPS:
+        if aspect < minimum_aspect - 1e-9:
+            break
+        best: (
+            tuple[int, int, ImageFont.FreeTypeFont, int, tuple[int, int, int, int]] | None
+        ) = None
+        for font_size in range(ceiling, minimum_font_size - 1, -1):
+            if font_size not in measured:
+                font = ImageFont.truetype(str(font_path), font_size)
+                measured[font_size] = (
+                    font,
+                    ink_extent(text, font, spacing=spacing, align=align, shadow=shadow),
+                )
+            font, box = measured[font_size]
+            if box is None:
+                continue
+            condensed = scale_ink_box(box, aspect)
+            width = condensed[2] - condensed[0]
+            height = condensed[3] - condensed[1]
+            if width > usable_width or height > usable_height:
+                continue
+            score = abs(height - target_height)
+            better = best is None or score < best[0]
+            if not better and score == best[0]:
+                better = height <= target_height < best[3]
+            if better:
+                best = (score, font_size, font, height, condensed)
+            if best[0] == 0 and best[3] <= target_height:
+                break
+        if best is None:
+            continue
+        # Larger aspects are tried first, so on equal height error the less
+        # condensed (more legible) rendering always wins.
+        if overall is None or best[0] < overall[0]:
+            overall = (*best, aspect)
+        if overall[0] == 0:
+            break
+    if overall is None:
+        raise ValueError(
+            f"cannot fit {text!r} into {region_size} "
+            f"(usable {usable_width}x{usable_height}, aspects down to {minimum_aspect}, "
+            f"font sizes {minimum_font_size}..{ceiling})"
+        )
+    return overall[2], overall[1], overall[4], overall[5]
+
+
+def draw_condensed_text(
+    image: Image.Image,
+    origin: tuple[int, int],
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    *,
+    aspect: float,
+    spacing: int = 0,
+    align: str = "center",
+    fill: int = 255,
+    shadow_fill: int | None = None,
+) -> None:
+    """Draw ``text`` at ``origin`` with optional horizontal condensation.
+
+    ``origin`` follows the ``multiline_text`` convention against the
+    condensed ink box that :func:`choose_font_condensed` returned.  Aspect
+    1.0 uses ``ImageDraw`` directly so untouched labels stay bit-identical;
+    condensed labels are rendered at natural width, squeezed horizontally
+    with a high-quality LANCZOS resample (before any I4 quantisation), and
+    alpha-composited with a crisp 1 px drop shadow.
+    """
+
+    draw = ImageDraw.Draw(image)
+    if aspect >= 0.9995:
+        if shadow_fill is not None:
+            draw.multiline_text(
+                (origin[0] + 1, origin[1] + 1),
+                text,
+                font=font,
+                spacing=spacing,
+                align=align,
+                fill=shadow_fill,
+            )
+        draw.multiline_text(
+            origin, text, font=font, spacing=spacing, align=align, fill=fill
+        )
+        return
+
+    box = ink_extent(text, font, spacing=spacing, align=align, shadow=False)
+    if box is None:
+        return
+    lines = text.split("\n")
+    size = getattr(font, "size", 16)
+    width = _PROBE_PADDING * 2 + int((size + 4) * (max(len(line) for line in lines) + 2)) + 32
+    height = _PROBE_PADDING * 2 + int((size + spacing + 8) * len(lines)) + 32
+    probe = Image.new("L", (max(width, 32), max(height, 32)), 0)
+    ImageDraw.Draw(probe).multiline_text(
+        (_PROBE_PADDING, _PROBE_PADDING),
+        text,
+        font=font,
+        spacing=spacing,
+        align=align,
+        fill=255,
+    )
+    crop = probe.crop(
+        (
+            _PROBE_PADDING + box[0],
+            _PROBE_PADDING + box[1],
+            _PROBE_PADDING + box[2],
+            _PROBE_PADDING + box[3],
+        )
+    )
+    condensed_width = max(1, math.ceil((box[2] - box[0]) * aspect))
+    mask = crop.resize((condensed_width, crop.height), Image.Resampling.LANCZOS)
+    x = origin[0] + math.floor(box[0] * aspect)
+    y = origin[1] + box[1]
+    if shadow_fill is not None:
+        image.paste(Image.new("L", mask.size, shadow_fill), (x + 1, y + 1), mask)
+    image.paste(Image.new("L", mask.size, fill), (x, y), mask)
 
 
 def place_ink(

@@ -269,7 +269,8 @@
       "bitmap_block": 923,
       "block_index": 925,
       "action": "replace_with_korean",
-      "korean_proposal": "브이맥스"
+      "korean_proposal": "V-MAX",
+      "allow_ascii": true
     },
     {
       "bitmap_block": 923,
@@ -323,7 +324,7 @@
       "bitmap_block": 947,
       "block_index": 950,
       "action": "replace_with_korean",
-      "korean_proposal": "총 턴 수"
+      "korean_proposal": "총턴수"
     },
     {
       "bitmap_block": 947,
@@ -359,7 +360,7 @@
       "bitmap_block": 959,
       "block_index": 963,
       "action": "replace_with_korean",
-      "korean_proposal": "유닛 능력"
+      "korean_proposal": "유닛능력"
     },
     {
       "bitmap_block": 959,
@@ -371,7 +372,7 @@
       "bitmap_block": 959,
       "block_index": 965,
       "action": "replace_with_korean",
-      "korean_proposal": "강화 파츠 장착"
+      "korean_proposal": "강화파츠"
     },
     {
       "bitmap_block": 959,
@@ -401,7 +402,7 @@
       "bitmap_block": 959,
       "block_index": 970,
       "action": "replace_with_korean",
-      "korean_proposal": "파일럿 능력"
+      "korean_proposal": "파일럿능력"
     },
     {
       "bitmap_block": 959,
