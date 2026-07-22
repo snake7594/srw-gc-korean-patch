@@ -287,9 +287,22 @@ def render_korean_label(
     english_view: Image.Image,
     korean: str,
     japanese_view: Image.Image | None = None,
+    canvas_view: Image.Image | None = None,
 ) -> tuple[Image.Image, dict[str, object]]:
+    """Render ``korean`` for one SCR.
+
+    ``canvas_view`` overrides the canvas basis for labels whose SCR was
+    restored to the Japanese retail dimensions by
+    ``restore_jp_scr_canvas.py``; the English view then no longer matches
+    the block's declared canvas.  Only plain black-canvas modes support a
+    restored basis.
+    """
+
+    basis = canvas_view if canvas_view is not None else english_view
     display = normalize_display_text(block_index, korean)
     if bitmap == 930:
+        if canvas_view is not None:
+            raise ValueError("bitmap 930 does not support restored canvases")
         # SCR 933 is a complete 640x480 frame.  Only the title in the black
         # header panel is replaced; all chrome and panel art stays untouched.
         background = english_view.copy().convert("L")
@@ -298,7 +311,11 @@ def render_korean_label(
         maximum_font_size = 28
         mode = "screen_header_overlay"
     else:
-        background = clean_background(bitmap, english_view)
+        if canvas_view is not None and bitmap in (334, 355, 433, 952):
+            raise ValueError(
+                f"bitmap {bitmap} reconstructed art does not support restored canvases"
+            )
+        background = clean_background(bitmap, basis)
         if bitmap == 334:
             region, align, fill, shadow = (2, 2, 30, 30), "center", 255, 0
             mode = "square_command_key"
@@ -322,9 +339,9 @@ def render_korean_label(
         # remains within that original capacity after flip deduplication.
         maximum_font_size = 16 if bitmap == 433 else 24 if bitmap == 952 else None
 
-    measure_region = region or (0, 0, english_view.width, english_view.height)
+    measure_region = region or (0, 0, basis.width, basis.height)
     japanese_box = None
-    if japanese_view is not None and japanese_view.height == english_view.height:
+    if japanese_view is not None and japanese_view.height == basis.height:
         reference = (
             Image.new("L", japanese_view.size, 0)
             if bitmap == 930
@@ -521,12 +538,18 @@ def main(argv: list[str] | None = None) -> int:
         japanese_images = {
             index: render_gx10(japanese_atlas, japanese.blocks[index]) for index in scr_blocks
         }
+        restored_canvas_blocks: set[int] = set()
         for index in scr_blocks:
             if source_images[index].size != english_images[index].size:
-                raise ValueError(
-                    f"SCR {index} source/English dimensions differ: "
-                    f"{source_images[index].size} != {english_images[index].size}"
-                )
+                if source_images[index].size == japanese_images[index].size:
+                    # ``restore_jp_scr_canvas.py`` put the Japanese retail
+                    # canvas back on this label before the render chain ran.
+                    restored_canvas_blocks.add(index)
+                else:
+                    raise ValueError(
+                        f"SCR {index} source/English dimensions differ: "
+                        f"{source_images[index].size} != {english_images[index].size}"
+                    )
 
         identity_atlas, identity_entries, identity_tiles = pack_images(
             source_atlas.size, source_images
@@ -551,6 +574,11 @@ def main(argv: list[str] | None = None) -> int:
             row = by_scr[index]
             action = str(row["action"])
             if action == "preserve":
+                if index in restored_canvas_blocks:
+                    raise ValueError(
+                        f"SCR {index} has a restored canvas and cannot preserve "
+                        "the English rendering"
+                    )
                 target_images[index] = english_images[index]
                 continue
             if action != "replace_with_korean":
@@ -570,6 +598,14 @@ def main(argv: list[str] | None = None) -> int:
                 english_images[index],
                 korean,
                 japanese_images[index],
+                canvas_view=(
+                    source_images[index]
+                    if index in restored_canvas_blocks
+                    else None
+                ),
+            )
+            render_record["canvas_restored_to_japanese"] = (
+                index in restored_canvas_blocks
             )
             target_images[index] = target
             group_render_records.append(render_record)
