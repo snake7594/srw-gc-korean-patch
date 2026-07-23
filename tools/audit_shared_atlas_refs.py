@@ -19,10 +19,24 @@ sys.path.insert(0, str(TOOLS_DIR))
 import add00_tools  # noqa: E402
 
 from repack_preserve_indices import (  # noqa: E402
+    FULL_REPLACEMENT_BITMAP,
     TARGET_BITMAPS,
     load_actions,
     rebuild_container,
 )
+
+#: Atlas groups whose original tiles are ALLOWED to change in place.  Only
+#: the 256x240 battle-ability atlas (438) is in this set: the user
+#: explicitly approved its full-size in-place rebuild on 2026-07-23, with
+#: the English retail patch as precedent (it replaces 920 of the same 960
+#: tiles and plays correctly; prior Korean releases shipped 934 differing
+#: prefix tiles here without battle regressions).  For these groups the
+#: audit instead enforces: (a) every group SCR is a rewritten translation
+#: target whose entries reference only valid in-range tiles, and (b) the
+#: atlas keeps its exact retail dimensions and BMP header.  Every other
+#: atlas keeps the strict original-tile preservation check; weakening any
+#: other group's guarantee is a hard failure.
+FULL_REPLACEMENT_BITMAPS = frozenset({FULL_REPLACEMENT_BITMAP})
 
 
 CONTROL_TYPES = {b"SPR\0", b"ECD\0", b"ATR\0", b"PAT\0", b"TIM\0"}
@@ -179,6 +193,21 @@ def main() -> int:
             if source.blocks[index] != repacked.blocks[index]:
                 changed_preserved_scrs.append(index)
 
+        full_replacement = bitmap in FULL_REPLACEMENT_BITMAPS
+        if full_replacement and preserved_scrs:
+            # In-place tile replacement is only safe when every SCR of the
+            # group is rewritten against the new tile map.
+            structure_failures.append(
+                {
+                    "bitmap_block": bitmap,
+                    "failure": (
+                        "full-replacement group has preserved SCRs "
+                        f"{preserved_scrs}; every SCR must be a translation "
+                        "target"
+                    ),
+                }
+            )
+
         original_tile_bytes_changed: int | None = None
         original_raster_prefix_byte_identical = False
         bmp_header_fields_preserved = False
@@ -194,6 +223,12 @@ def main() -> int:
             if repacked_atlas.height < atlas.height:
                 raise ValueError(
                     f"height shrank from {atlas.height} to {repacked_atlas.height}"
+                )
+            if full_replacement and repacked_atlas.height != atlas.height:
+                raise ValueError(
+                    "full-replacement atlas must keep its exact retail "
+                    f"dimensions; height changed from {atlas.height} to "
+                    f"{repacked_atlas.height}"
                 )
             repacked_tile_capacity = (
                 repacked_atlas.width // 8 * (repacked_atlas.height // 8)
@@ -283,6 +318,17 @@ def main() -> int:
                 "preserved_scrs": preserved_scrs,
                 "preserved_scrs_rewritten_by_old_repacker": changed_preserved_scrs,
                 "original_atlas_tiles_changed_by_old_repacker": original_tile_bytes_changed,
+                "full_replacement_approved": full_replacement,
+                "full_replacement_authorization": (
+                    "User-approved 2026-07-23: full-size battle-ability "
+                    "labels replace the original tiles of atlas 438 in "
+                    "place.  Precedent: the English retail patch replaces "
+                    "920 of the same 960 tiles and plays correctly; prior "
+                    "Korean releases shipped 934 differing prefix tiles "
+                    "here without battle regressions."
+                )
+                if full_replacement
+                else None,
                 "original_raster_prefix_byte_identical": original_raster_prefix_byte_identical,
                 "bmp_header_fields_preserved": bmp_header_fields_preserved,
                 "atlas_structure_failure": atlas_structure_failure,
@@ -335,9 +381,20 @@ def main() -> int:
         len(row["preserved_scrs_rewritten_by_old_repacker"])
         for row in group_reports
     )
+    # Approved full-replacement groups (438) are excluded from the
+    # destructive-reindex tile count on purpose: their in-place tile
+    # rewrite is the user-approved intent, not a defect.  Their tile
+    # changes are still reported separately for transparency, and their
+    # SCR-validity checks above remain hard failures.
     total_original_tile_changes = sum(
         row["original_atlas_tiles_changed_by_old_repacker"] or 0
         for row in group_reports
+        if not row["full_replacement_approved"]
+    )
+    approved_full_replacement_tile_changes = sum(
+        row["original_atlas_tiles_changed_by_old_repacker"] or 0
+        for row in group_reports
+        if row["full_replacement_approved"]
     )
     try:
         rebuilt_repacked, rebuilt_offsets = rebuild_container(list(repacked.blocks))
@@ -388,6 +445,23 @@ def main() -> int:
             ),
             "preserved_scrs_rewritten": total_preserved_scr_changes,
             "original_atlas_tiles_changed": total_original_tile_changes,
+            "approved_full_replacement_tiles_changed": (
+                approved_full_replacement_tile_changes
+            ),
+        },
+        "approved_full_replacement": {
+            "bitmaps": sorted(FULL_REPLACEMENT_BITMAPS),
+            "authorization": (
+                "User-approved 2026-07-23: atlas 438's original tiles are "
+                "replaced in place by full-size Korean battle-ability "
+                "labels.  Precedent: the English retail patch replaces 920 "
+                "of the same 960 tiles and plays correctly; prior Korean "
+                "releases shipped 934 differing prefix tiles here without "
+                "battle regressions.  All 23 group SCRs are rewritten and "
+                "checked to reference only valid in-range tiles; every "
+                "other atlas keeps the strict original-tile preservation "
+                "guarantee."
+            ),
         },
         "control_block_exact_reference_hits": pointer_hits,
         "control_block_exact_offset_probe_summary": {

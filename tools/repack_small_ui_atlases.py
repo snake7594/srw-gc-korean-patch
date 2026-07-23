@@ -39,12 +39,15 @@ sys.path.insert(0, str(TOOLS_DIR))
 import add00_tools  # noqa: E402
 
 from ui_text_fit import (  # noqa: E402
+    INK_THRESHOLD,
     RENDERER_VERSION,
     choose_font_condensed,
     draw_condensed_text,
     japanese_ink_box,
     place_ink,
 )
+
+from repack_direct_scr_atlas import ink_column_segments  # noqa: E402
 
 
 LOCAL_FONT_DIR = (
@@ -62,10 +65,13 @@ SUPPORTED_BITMAPS = (334, 355, 433, 438, 923, 930, 947, 952, 959, 2714, 3489)
 FLIP_FLAGS = (0x0000, 0x0400, 0x0800, 0x0C00)
 
 #: Atlases whose labels sit on reconstructed art (bevel keys, pills, the
-#: gradient selector) or whose tile budget is deliberately capped (438).
-#: Their renderings keep the historical uncondensed behaviour so the
-#: reconstructed backgrounds and tile counts stay exactly as approved.
-UNCONDENSED_BITMAPS = frozenset({334, 355, 433, 438, 952})
+#: gradient selector).  Their renderings keep the historical uncondensed
+#: behaviour so the reconstructed backgrounds stay exactly as approved.
+#: 438 left this set in v1.0.11: its tile budget is no longer capped
+#: because the user approved replacing the original battle-label tiles in
+#: place (matching the English patch, which replaces 920 of the atlas's
+#: 960 tiles), so its wide labels may condense down to 0.6 like the rest.
+UNCONDENSED_BITMAPS = frozenset({334, 355, 433, 952})
 
 
 def sha256(data: bytes) -> str:
@@ -281,6 +287,143 @@ def draw_fitted_text(
     return output, font_size, region, metrics
 
 
+def render_segmented_words(
+    background: Image.Image,
+    words: list[str],
+    japanese_view: Image.Image,
+) -> tuple[Image.Image, int, dict[str, object]]:
+    """Align one Korean run per Japanese ink-column segment.
+
+    Used for headers whose runtime-variable part sits between fixed glyph
+    runs: SCR 951 is ``第[N]話までクリア`` with 第 on tile columns x0..15, a
+    32 px runtime episode-number slot on x16..47, and 話までクリア from
+    x48.  Each Korean run is fitted to its own tile-aligned window (the
+    first is centred on its Japanese run, later ones start on their
+    Japanese run's first ink column), and the gaps between windows - the
+    runtime digit slots - are verified to stay completely ink-free.
+    """
+
+    japanese_box = japanese_ink_box(japanese_view, None)
+    if japanese_box is None:
+        raise ValueError("segmented header needs a measurable Japanese label")
+    segments = ink_column_segments(japanese_view, None)
+    if len(segments) != len(words):
+        raise ValueError(
+            f"segment_words count {len(words)} does not match the Japanese "
+            f"ink-column segments {segments}"
+        )
+    output = background.copy().convert("L")
+    width, height = output.size
+    target_height = japanese_box[3] - japanese_box[1]
+    target_center = (japanese_box[1] + japanese_box[3]) / 2
+    # The retail art reserves whole 8 px tile columns per run, so the
+    # fitting windows are the segments rounded out to tile boundaries;
+    # everything between two windows is a runtime slot and stays empty.
+    windows = [
+        (segment_start // 8 * 8, min(width, (segment_end + 7) // 8 * 8))
+        for segment_start, segment_end in segments
+    ]
+    for (previous_left, previous_right), (next_left, next_right) in zip(
+        windows, windows[1:]
+    ):
+        if previous_right > next_left:
+            raise ValueError(f"segment windows overlap: {windows}")
+    choices = [
+        choose_font_condensed(
+            FONT,
+            word,
+            region_size=(right - left, height),
+            target_height=target_height,
+            spacing=0,
+            shadow=True,
+            horizontal_margin=0,
+            vertical_slack=0,
+        )
+        for word, (left, right) in zip(words, windows)
+    ]
+    font_size = min(choice[1] for choice in choices)
+    ink_boxes: list[list[int]] = []
+    aspects: list[float] = []
+    for position, (word, (segment_start, segment_end), (left, right)) in enumerate(
+        zip(words, segments, windows)
+    ):
+        # Re-fit at the common face so every run shares one letterform
+        # size; each run keeps its own condensation for its own window.
+        font, _, ink, aspect = choose_font_condensed(
+            FONT,
+            word,
+            region_size=(right - left, height),
+            target_height=target_height,
+            spacing=0,
+            shadow=True,
+            horizontal_margin=0,
+            vertical_slack=0,
+            maximum_font_size=font_size,
+            minimum_font_size=font_size,
+        )
+        ink_width = ink[2] - ink[0]
+        ink_height = ink[3] - ink[1]
+        if position == 0:
+            x = int(round((segment_start + segment_end) / 2 - ink_width / 2))
+        else:
+            # Later runs start where the retail glyphs start, keeping the
+            # runtime slot on their left untouched.
+            x = segment_start
+        x = max(left, min(x, right - ink_width))
+        y = int(round(target_center - ink_height / 2))
+        y = max(0, min(y, height - ink_height))
+        draw_condensed_text(
+            output,
+            (x - ink[0], y - ink[1]),
+            word,
+            font,
+            aspect=aspect,
+            spacing=0,
+            align="center",
+            fill=255,
+            shadow_fill=64,
+        )
+        aspects.append(aspect)
+        ink_boxes.append([x, y, x + ink_width, y + ink_height])
+    # Hard guard: the runtime slots between windows must carry no ink.
+    slot_ranges = [
+        [previous[1], following[0]] for previous, following in zip(windows, windows[1:])
+    ]
+    pixels = output.load()
+    dirty_slots = [
+        [slot_left, slot_right]
+        for slot_left, slot_right in slot_ranges
+        if any(
+            pixels[x, y] > INK_THRESHOLD
+            for x in range(slot_left, slot_right)
+            for y in range(height)
+        )
+    ]
+    if dirty_slots:
+        raise ValueError(f"runtime number slots carry Korean ink: {dirty_slots}")
+    return output, font_size, {
+        "japanese_ink_box": list(japanese_box),
+        "japanese_ink_height": target_height,
+        "korean_ink_height": max(box[3] - box[1] for box in ink_boxes),
+        "korean_ink_width": ink_boxes[-1][2] - ink_boxes[0][0],
+        "korean_ink_box": [
+            ink_boxes[0][0],
+            min(box[1] for box in ink_boxes),
+            ink_boxes[-1][2],
+            max(box[3] for box in ink_boxes),
+        ],
+        "condensed_aspect": min(aspects),
+        "matched_japanese_height": True,
+        "segmented_words": list(words),
+        "japanese_segments": [list(segment) for segment in segments],
+        "segment_windows": [list(window) for window in windows],
+        "segment_ink_boxes": ink_boxes,
+        "segment_aspects": aspects,
+        "runtime_slot_ranges": slot_ranges,
+        "runtime_slots_ink_free": not dirty_slots,
+    }
+
+
 def render_korean_label(
     bitmap: int,
     block_index: int,
@@ -288,6 +431,7 @@ def render_korean_label(
     korean: str,
     japanese_view: Image.Image | None = None,
     canvas_view: Image.Image | None = None,
+    segment_words: list[str] | None = None,
 ) -> tuple[Image.Image, dict[str, object]]:
     """Render ``korean`` for one SCR.
 
@@ -300,6 +444,40 @@ def render_korean_label(
 
     basis = canvas_view if canvas_view is not None else english_view
     display = normalize_display_text(block_index, korean)
+    if segment_words is not None:
+        cleaned_words = [str(word).strip() for word in segment_words]
+        if not cleaned_words or any(not word for word in cleaned_words):
+            raise ValueError(f"SCR {block_index} has empty segment_words")
+        if " ".join(cleaned_words) != korean:
+            raise ValueError(
+                f"SCR {block_index} segment_words do not reassemble the Korean "
+                f"proposal: {cleaned_words} != {korean!r}"
+            )
+        if bitmap != 947:
+            raise ValueError(
+                f"bitmap {bitmap} does not support segment_words rendering"
+            )
+        if japanese_view is None or japanese_view.size != basis.size:
+            raise ValueError(
+                f"SCR {block_index} segment_words needs the Japanese retail "
+                "canvas dimensions"
+            )
+        background = clean_background(bitmap, basis)
+        result, font_size, metrics = render_segmented_words(
+            background, cleaned_words, japanese_view
+        )
+        result = quantize_i4(result)
+        return result, {
+            "block_index": block_index,
+            "korean": korean,
+            "rendered_text": korean,
+            "render_mode": "jp_column_segmented_header",
+            "font_size": font_size,
+            "dimensions": list(result.size),
+            "region": [0, 0, result.width, result.height],
+            "ascii_words": ASCII_WORD_RE.findall(korean),
+            **metrics,
+        }
     if bitmap == 930:
         if canvas_view is not None:
             raise ValueError("bitmap 930 does not support restored canvases")
@@ -592,6 +770,9 @@ def main(argv: list[str] | None = None) -> int:
                 # ``allow_ascii`` marks labels whose Japanese retail original
                 # is itself Latin (e.g. V-MAX), kept verbatim on purpose.
                 raise ValueError(f"English word remains in Korean proposal {index}: {korean!r}")
+            segment_words = row.get("segment_words")
+            if segment_words is not None and not isinstance(segment_words, list):
+                raise ValueError(f"SCR {index} segment_words must be a list")
             target, render_record = render_korean_label(
                 bitmap,
                 index,
@@ -603,6 +784,7 @@ def main(argv: list[str] | None = None) -> int:
                     if index in restored_canvas_blocks
                     else None
                 ),
+                segment_words=segment_words,
             )
             render_record["canvas_restored_to_japanese"] = (
                 index in restored_canvas_blocks
