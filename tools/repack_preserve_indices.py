@@ -7,11 +7,18 @@ selected dynamically by the game.  This builder keeps every source tile at
 its original index, appends new Korean tiles, and rewrites translated SCRs
 only.  Preserved SCR blocks and all unrelated blocks remain byte-identical.
 
-The 256x240 ability-name atlas (block 438) already occupies 960 of the 1024
-indices available to the conventional SCR format.  Its 23 labels need 58
-distinct characters, which only fits the 64 free indices at one 8x8 tile per
-character, so those labels stay compact single-tile glyphs; the remaining
-groups retain the previously approved full-canvas rendering.
+Exception - approved full in-place replacement (v1.0.11): the 256x240
+battle-ability atlas (block 438) already occupies 960 of the 1024 indices
+the conventional SCR format can address, so full-size Korean labels cannot
+be appended.  The user explicitly approved (2026-07-23) rebuilding this one
+atlas in place from the approved full-size Korean label art instead of
+keeping compact single-tile glyphs.  Precedent: the English retail fan
+patch replaces 920 of the same 960 original tiles in place and plays
+correctly, and earlier Korean releases already shipped 934 differing
+prefix tiles in this atlas without any battle-screen regression reports.
+All 23 SCRs of the group are rewritten against the new tile map, so no
+static consumer can reference stale art; every other atlas group keeps the
+strict append-only original-tile guarantee described above.
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import PIL
-from PIL import Image, ImageChops, ImageDraw, ImageFont, features
+from PIL import Image, ImageChops, ImageDraw, features
 
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -54,7 +61,9 @@ DEFAULT_FONT = LOCAL_FONT_DIR / FONT_FILENAME
 FONT = DEFAULT_FONT
 FONT_SHA256 = "4749FA5691157CF56A59D297B45E88894A646846048018CD7A4117FFB2869767"
 DIRECT_BITMAP = 518
-COMPACT_BITMAP = 438
+#: The battle-ability atlas rebuilt fully in place under explicit user
+#: approval (2026-07-23); see the module docstring for the justification.
+FULL_REPLACEMENT_BITMAP = 438
 SMALL_BITMAPS = (334, 355, 433, 438, 923, 930, 947, 952, 959, 2714, 3489)
 TARGET_BITMAPS = (*SMALL_BITMAPS[:4], DIRECT_BITMAP, *SMALL_BITMAPS[4:])
 
@@ -86,44 +95,6 @@ def scr_group(container: add00_tools.Add00Container, bitmap: int) -> list[int]:
 
 def source_tiles(atlas: Image.Image) -> list[bytes]:
     return list(image_tiles(atlas))
-
-
-def compact_glyph(character: str) -> Image.Image:
-    """Render one legible Korean glyph into one 8x8 I4 tile."""
-
-    if character.isspace():
-        return Image.new("L", (8, 8), 0)
-    probe = Image.new("L", (8, 8), 0)
-    draw = ImageDraw.Draw(probe)
-    chosen = None
-    for size in range(11, 5, -1):
-        font = ImageFont.truetype(str(FONT), size)
-        box = draw.textbbox((0, 0), character, font=font)
-        width, height = box[2] - box[0], box[3] - box[1]
-        if width <= 8 and height <= 8:
-            chosen = font, box, width, height
-            break
-    if chosen is None:
-        raise ValueError(f"cannot fit compact glyph {character!r}")
-    font, box, width, height = chosen
-    x = (8 - width) // 2 - box[0]
-    y = (8 - height) // 2 - box[1]
-    draw.text((x, y), character, font=font, fill=255)
-    return quantize_i4(probe)
-
-
-def compact_label(width: int, height: int, text: str) -> Image.Image:
-    """Compose one 8x8 tile per character into the existing SCR canvas."""
-
-    characters = list(text)
-    if len(characters) > width:
-        raise ValueError(f"compact label {text!r} exceeds {width} tiles")
-    image = Image.new("L", (width * 8, height * 8), 0)
-    start_x = (width - len(characters)) // 2
-    row = max(0, (height - 1) // 2)
-    for position, character in enumerate(characters):
-        image.paste(compact_glyph(character), ((start_x + position) * 8, row * 8))
-    return image
 
 
 def build_expanded_bitmap(
@@ -379,6 +350,117 @@ def main() -> int:
         if not set(target_scrs).issubset(group_scrs):
             raise ValueError(f"bitmap {bitmap} mapping references another group")
 
+        if bitmap == FULL_REPLACEMENT_BITMAP:
+            # Approved full in-place replacement (v1.0.11).  The user
+            # explicitly approved replacing the original 960 tiles of this
+            # atlas with the approved full-size Korean label art on
+            # 2026-07-23.  Precedent: the English retail patch replaces 920
+            # of the same 960 tiles in place and plays correctly, and prior
+            # Korean releases shipped 934 differing prefix tiles here with
+            # no battle regressions.  Every SCR of the group must be a
+            # translation target so no static map can reference stale art.
+            if preserved_scrs:
+                raise ValueError(
+                    f"bitmap {bitmap} full replacement requires every SCR to "
+                    f"be translated; preserved={preserved_scrs}"
+                )
+            if len(approved.blocks[bitmap]) != len(source.blocks[bitmap]):
+                raise ValueError(
+                    f"bitmap {bitmap} approved atlas block length differs"
+                )
+            if approved.blocks[bitmap][:32] != source.blocks[bitmap][:32]:
+                raise ValueError(f"bitmap {bitmap} approved BMP header differs")
+            physical_capacity = old_capacity
+            if physical_capacity > limit:
+                raise ValueError(
+                    f"bitmap {bitmap} physical capacity {physical_capacity} "
+                    f"exceeds {limit}"
+                )
+            entries_by_scr = {}
+            for scr_index in target_scrs:
+                source_block = source.blocks[scr_index]
+                approved_block = approved.blocks[scr_index]
+                if len(approved_block) != len(source_block):
+                    raise ValueError(f"SCR {scr_index} approved length differs")
+                if approved_block[:32] != source_block[:32]:
+                    raise ValueError(f"SCR {scr_index} approved header differs")
+                width, height = struct.unpack_from(">II", approved_block, 4)
+                stored = struct.unpack_from(
+                    f">{(len(approved_block) - 32) // 2}H", approved_block, 32
+                )
+                entries = list(stored[: width * height])
+                invalid = sorted(
+                    {
+                        entry
+                        for entry in entries
+                        if entry & 0xF000 or (entry & 0x03FF) >= physical_capacity
+                    }
+                )
+                if invalid:
+                    raise ValueError(
+                        f"SCR {scr_index} references invalid atlas tiles: "
+                        f"{invalid[:8]}"
+                    )
+                target_images[scr_index] = render_gx10(approved_atlas, approved_block)
+                entries_by_scr[scr_index] = entries
+                blocks[scr_index] = approved_block
+                allowed_changes.add(scr_index)
+            blocks[bitmap] = approved.blocks[bitmap]
+            allowed_changes.add(bitmap)
+            adopted_atlas = add00_tools.decode_i4(blocks[bitmap])
+            visual_failures = [
+                scr_index
+                for scr_index in target_scrs
+                if ImageChops.difference(
+                    render_gx10(adopted_atlas, blocks[scr_index]),
+                    target_images[scr_index],
+                ).getbbox()
+            ]
+            if visual_failures:
+                raise RuntimeError(
+                    f"bitmap {bitmap} verification failed: visual={visual_failures}"
+                )
+            replaced_tiles = sum(
+                before != after
+                for before, after in zip(old_tiles, source_tiles(adopted_atlas))
+            )
+            group_reports.append(
+                {
+                    "bitmap_block": bitmap,
+                    "mode": "gx10_hv_full_inplace_replacement",
+                    "original_dimensions": list(source_atlas.size),
+                    "expanded_dimensions": list(adopted_atlas.size),
+                    "original_capacity": old_capacity,
+                    "appended_unique_tiles": 0,
+                    "physical_capacity": physical_capacity,
+                    "index_limit": limit,
+                    "spare_appendable_tiles": 0,
+                    "maximum_written_index": max(
+                        (entry & 0x03FF)
+                        for entries in entries_by_scr.values()
+                        for entry in entries
+                    ),
+                    "target_scr_count": len(target_scrs),
+                    "preserved_scr_count": 0,
+                    "target_scrs": target_scrs,
+                    "preserved_scrs": [],
+                    "all_original_tile_bytes_preserved": False,
+                    "original_tiles_replaced_in_place": replaced_tiles,
+                    "full_replacement_authorization": (
+                        "User-approved 2026-07-23: full-size battle-ability "
+                        "labels replace the original tiles in place.  "
+                        "Precedent: the English retail patch replaces 920 of "
+                        "the same 960 tiles and plays correctly; prior Korean "
+                        "releases shipped 934 differing prefix tiles here "
+                        "without battle regressions."
+                    ),
+                    "preserved_scrs_byte_identical": True,
+                    "visual_round_trip_failures": visual_failures,
+                    "compact_one_tile_glyphs": False,
+                }
+            )
+            continue
+
         appended: list[bytes] = []
         entries_by_scr: dict[int, list[int]] = {}
         if direct:
@@ -428,15 +510,11 @@ def main() -> int:
             approved_dimensions = struct.unpack_from(">II", approved.blocks[scr_index], 4)
             if approved_dimensions != (width, height):
                 raise ValueError(f"SCR {scr_index} source/approved dimensions differ")
-            if bitmap == COMPACT_BITMAP:
-                text = str(records[scr_index]["korean_proposal"])
-                image = compact_label(width, height, text)
-            else:
-                image = (
-                    render_direct(approved_atlas, approved.blocks[scr_index])[0]
-                    if direct
-                    else render_gx10(approved_atlas, approved.blocks[scr_index])
-                )
+            image = (
+                render_direct(approved_atlas, approved.blocks[scr_index])[0]
+                if direct
+                else render_gx10(approved_atlas, approved.blocks[scr_index])
+            )
             target_images[scr_index] = image
             entries_by_scr[scr_index] = [entry_for(pattern) for pattern in image_tiles(image)]
 
@@ -505,7 +583,7 @@ def main() -> int:
                 "all_original_tile_bytes_preserved": True,
                 "preserved_scrs_byte_identical": not preserved_failures,
                 "visual_round_trip_failures": visual_failures,
-                "compact_one_tile_glyphs": bitmap == COMPACT_BITMAP,
+                "compact_one_tile_glyphs": False,
             }
         )
 
@@ -550,7 +628,7 @@ def main() -> int:
     preview_paths: list[str] = []
     if preview_path:
         preview_path.mkdir(parents=True, exist_ok=True)
-        bitmap = COMPACT_BITMAP
+        bitmap = FULL_REPLACEMENT_BITMAP
         group = next(row for row in group_reports if row["bitmap_block"] == bitmap)
         atlas = add00_tools.decode_i4(verified.blocks[bitmap])
         rows = []
@@ -563,13 +641,13 @@ def main() -> int:
         sheet = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(sheet)
         draw.text((40, 4), "SOURCE", fill=255)
-        draw.text((460, 4), "PRESERVED-INDEX KOREAN", fill=255)
+        draw.text((460, 4), "FULL-SIZE KOREAN (438 IN-PLACE)", fill=255)
         for row_number, (index, before, after) in enumerate(rows):
             y = 24 + row_number * 50
             draw.text((2, y + 4), str(index), fill=255)
             sheet.paste(before, (40, y))
             sheet.paste(after, (460, y))
-        path = preview_path / "block438_compact_labels.png"
+        path = preview_path / "block438_fullsize_labels.png"
         sheet.save(path)
         preview_paths.append(str(path.resolve()))
 
@@ -601,9 +679,16 @@ def main() -> int:
         "copied_independent_blocks": copy_blocks,
         "preview_paths": preview_paths,
         "global_guards": {
-            "all_preexisting_atlas_tile_bytes_preserved": all(
-                row["all_original_tile_bytes_preserved"] for row in group_reports
+            # Atlas 438 is excluded on purpose: its full in-place tile
+            # replacement was explicitly approved by the user (2026-07-23)
+            # with the English retail patch as precedent.  Every other
+            # atlas keeps the strict append-only original-tile guarantee.
+            "all_preexisting_atlas_tile_bytes_preserved_outside_approved_full_replacement": all(
+                row["all_original_tile_bytes_preserved"]
+                for row in group_reports
+                if row["bitmap_block"] != FULL_REPLACEMENT_BITMAP
             ),
+            "approved_full_replacement_bitmaps": [FULL_REPLACEMENT_BITMAP],
             "all_preserved_scrs_byte_identical": all(
                 row["preserved_scrs_byte_identical"] for row in group_reports
             ),

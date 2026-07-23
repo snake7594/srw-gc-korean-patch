@@ -330,7 +330,11 @@
       "bitmap_block": 947,
       "block_index": 951,
       "action": "replace_with_korean",
-      "korean_proposal": "제 화까지 완료"
+      "korean_proposal": "제 화까지 완료",
+      "segment_words": [
+        "제",
+        "화까지 완료"
+      ]
     },
     {
       "bitmap_block": 952,
